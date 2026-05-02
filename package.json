@@ -1,0 +1,19 @@
+﻿{
+  "name": "multi-signup-bot",
+  "version": "2.0.0",
+  "description": "Multi-service auto signup bot (Unlucid.ai + CodeBuddy.ai) with Camoufox + proxy rotation",
+  "main": "index.js",
+  "type": "module",
+  "scripts": {
+    "start": "node index.js"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "dependencies": {
+    "camoufox-js": "^0.10.2",
+    "chalk": "^5.6.2",
+    "playwright-core": "^1.59.1",
+    "readline-sync": "^1.4.10"
+  }
+}
