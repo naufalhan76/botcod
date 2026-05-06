@@ -5,9 +5,11 @@
  *   POST /v1/chat/completions
  */
 import { Router } from 'express';
-import { getConfig } from '../lib/config.js';
+import { getConfig, providerForModel } from '../lib/config.js';
 import { streamChatCompletion } from '../lib/upstream.js';
-import { summary } from '../lib/keyPool.js';
+import { summary as codebuddySummary } from '../lib/keyPool.js';
+import { kiroChatCompletion } from '../lib/providers/kiro/index.js';
+import { summaryKiro } from '../lib/providers/kiro/credentials.js';
 
 const router = Router();
 
@@ -37,18 +39,44 @@ router.post('/chat/completions', async (req, res) => {
         return res.status(400).json({ error: { message: '`model` is required', type: 'invalid_request_error' } });
     }
 
-    const pool = summary();
-    if (pool.active === 0) {
-        return res.status(503).json({
-            error: {
-                message: 'No active CodeBuddy keys available. Add keys to codebuddy_keys.txt or run the signup bot.',
-                type: 'no_keys_available',
-                pool
-            }
+    const provider = providerForModel(body.model);
+    if (!provider) {
+        return res.status(400).json({
+            error: { message: `unknown model: ${body.model}`, type: 'invalid_request_error' }
         });
     }
 
-    await streamChatCompletion(body, res);
+    if (provider === 'codebuddy') {
+        const pool = codebuddySummary();
+        if (pool.active === 0) {
+            return res.status(503).json({
+                error: {
+                    message: 'No active CodeBuddy keys available. Add keys via dashboard → Pool → CodeBuddy.',
+                    type: 'no_keys_available',
+                    provider: 'codebuddy',
+                    pool
+                }
+            });
+        }
+        return streamChatCompletion(body, res);
+    }
+
+    if (provider === 'kiro') {
+        const pool = summaryKiro();
+        if (pool.active === 0) {
+            return res.status(503).json({
+                error: {
+                    message: 'No active Kiro credentials. Add one via dashboard → Pool → Kiro.',
+                    type: 'no_creds_available',
+                    provider: 'kiro',
+                    pool
+                }
+            });
+        }
+        return kiroChatCompletion(body, res);
+    }
+
+    return res.status(500).json({ error: { message: `unhandled provider: ${provider}`, type: 'router_error' } });
 });
 
 export default router;

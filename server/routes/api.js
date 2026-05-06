@@ -26,13 +26,18 @@
  *   POST   /api/test-chat          { model, prompt }
  */
 import { Router } from 'express';
-import { getConfig, updateSettings } from '../lib/config.js';
+import { getConfig, updateSettings, providerForModel } from '../lib/config.js';
 import {
     listPool, summary, reloadKeys, setStatus, getEntryByMaskedOrEmail
 } from '../lib/keyPool.js';
 import { loadLines, writeLines } from '../../lib/utils.js';
 import { createJob, getJob, listJobs, abortJob } from '../lib/jobs.js';
 import { streamChatCompletion } from '../lib/upstream.js';
+import { kiroChatCompletion } from '../lib/providers/kiro/index.js';
+import {
+    listKiroCreds, summaryKiro, addKiroCred, removeKiroCred,
+    setKiroCredStatus, getAccessTokenForCred, loadKiroStore
+} from '../lib/providers/kiro/credentials.js';
 
 const router = Router();
 
@@ -40,6 +45,7 @@ router.get('/overview', (req, res) => {
     const cfg = getConfig();
     res.json({
         pool: summary(),
+        kiro_pool: summaryKiro(),
         accounts: loadLines(cfg.ACCOUNTS_FILE).length,
         proxies: loadLines(cfg.PROXIES_FILE).length,
         jobs_total: listJobs().length,
@@ -48,9 +54,45 @@ router.get('/overview', (req, res) => {
             UPSTREAM_BASE: cfg.UPSTREAM_BASE,
             COOLDOWN_MS: cfg.COOLDOWN_MS,
             EXPOSED_MODELS: cfg.EXPOSED_MODELS,
+            MODEL_PROVIDERS: cfg.MODEL_PROVIDERS,
             PORT: cfg.PORT
         }
     });
+});
+
+// ---- Kiro pool ----
+router.get('/kiro/pool', (req, res) => {
+    res.json({ summary: summaryKiro(), entries: listKiroCreds() });
+});
+router.post('/kiro/pool/reload', (req, res) => {
+    loadKiroStore();
+    res.json({ count: listKiroCreds().length });
+});
+router.post('/kiro/pool', async (req, res) => {
+    const { label, refreshToken, clientId, clientSecret, auth, accessToken, expiresAt } = req.body || {};
+    if (!refreshToken) return res.status(400).json({ error: 'refreshToken is required' });
+    try {
+        const idx = addKiroCred({ label, auth, refreshToken, clientId, clientSecret, accessToken, expiresAt });
+        // Validate by attempting to refresh.
+        try { await getAccessTokenForCred(idx); } catch (e) {
+            return res.json({ idx, validated: false, error: e.message });
+        }
+        res.json({ idx, validated: true });
+    } catch (e) {
+        res.status(400).json({ error: e.message });
+    }
+});
+router.delete('/kiro/pool/:idx', (req, res) => {
+    const idx = parseInt(req.params.idx);
+    res.json({ ok: removeKiroCred(idx) });
+});
+router.post('/kiro/pool/:idx/status', (req, res) => {
+    try {
+        const ok = setKiroCredStatus(parseInt(req.params.idx), req.body.status);
+        res.json({ ok });
+    } catch (e) {
+        res.status(400).json({ error: e.message });
+    }
 });
 
 // ---- Pool ----
@@ -190,7 +232,9 @@ router.post('/test-chat', async (req, res) => {
         ],
         stream: false
     };
-    await streamChatCompletion(body, res);
+    const provider = providerForModel(model);
+    if (provider === 'kiro') return kiroChatCompletion(body, res);
+    return streamChatCompletion(body, res);
 });
 
 export default router;

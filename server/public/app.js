@@ -50,6 +50,9 @@ function onTabSwitch(tab) {
     } else if (tab === 'pool') {
         loadPool();
         _refreshTimers.pool = setInterval(loadPool, 5000);
+    } else if (tab === 'kiro') {
+        loadKiroPool();
+        _refreshTimers.kiro = setInterval(loadKiroPool, 5000);
     } else if (tab === 'accounts') {
         loadAccounts();
     } else if (tab === 'proxies') {
@@ -68,15 +71,19 @@ async function loadOverview() {
         const o = await api('GET', '/api/overview');
         $('#stat-active').textContent = o.pool.active || 0;
         $('#stat-cooldown').textContent = o.pool.cooldown || 0;
-        $('#stat-dead').textContent = o.pool.dead || 0;
+        $('#stat-kiro-active').textContent = (o.kiro_pool && o.kiro_pool.active) || 0;
+        $('#stat-kiro-cooldown').textContent = (o.kiro_pool && o.kiro_pool.cooldown) || 0;
         $('#stat-accounts').textContent = o.accounts;
-        $('#stat-proxies').textContent = o.proxies;
         $('#stat-jobs-running').textContent = o.jobs_running;
 
         const sel = $('#test-model');
+        const providers = o.config.MODEL_PROVIDERS || {};
         if (_models.length === 0 || _models.length !== o.config.EXPOSED_MODELS.length) {
             _models = o.config.EXPOSED_MODELS;
-            sel.innerHTML = _models.map(m => `<option value="${m}">${m}</option>`).join('');
+            sel.innerHTML = _models.map(m => {
+                const tag = providers[m] ? ` [${providers[m]}]` : '';
+                return `<option value="${m}">${m}${tag}</option>`;
+            }).join('');
         }
 
         const baseUrl = `http://${location.hostname}:${o.config.PORT}/v1`;
@@ -85,7 +92,7 @@ async function loadOverview() {
             provider: {
                 "sambungin": {
                     npm: "@ai-sdk/openai-compatible",
-                    name: "Sambungin (CodeBuddy)",
+                    name: "Sambungin (CodeBuddy + Kiro)",
                     options: {
                         baseURL: baseUrl,
                         apiKey: "not-required-router-doesnt-check"
@@ -157,6 +164,81 @@ $('#pool-reload').addEventListener('click', async () => {
     const r = await api('POST', '/api/pool/reload');
     toast(`Reloaded: ${r.count} key(s)`);
     loadPool();
+});
+
+// ---- KIRO POOL ----
+async function loadKiroPool() {
+    try {
+        const data = await api('GET', '/api/kiro/pool');
+        const tbody = $('#kiro-tbody');
+        tbody.innerHTML = data.entries.length === 0
+            ? `<tr><td colspan="9" class="muted" style="text-align:center;padding:20px;">No Kiro credentials. Add one above.</td></tr>`
+            : data.entries.map(e => `
+                <tr>
+                    <td>${esc(e.label)}</td>
+                    <td>${esc(e.auth)}${e.has_client_secret ? '' : ' <span class="muted">(no secret)</span>'}</td>
+                    <td><span class="badge ${e.status}">${e.status}</span></td>
+                    <td>${e.expires_at ? fmtTime(e.expires_at) : '<span class="muted">–</span>'}</td>
+                    <td>${e.last_used_at ? fmtTime(e.last_used_at) : '<span class="muted">never</span>'}</td>
+                    <td>${e.cooldown_until ? fmtTime(e.cooldown_until) : '<span class="muted">–</span>'}</td>
+                    <td>${e.usage_count}</td>
+                    <td>${e.error_count}${e.last_error ? `<br><span class="muted">${esc(String(e.last_error)).slice(0,60)}</span>` : ''}</td>
+                    <td>
+                        <div class="row-actions">
+                            <button class="btn" data-kiro-status="active" data-idx="${e.idx}">Activate</button>
+                            <button class="btn" data-kiro-status="cooldown" data-idx="${e.idx}">Cooldown</button>
+                            <button class="btn danger" data-kiro-del="${e.idx}">Delete</button>
+                        </div>
+                    </td>
+                </tr>
+            `).join('');
+        tbody.querySelectorAll('button[data-kiro-status]').forEach(b => b.addEventListener('click', async () => {
+            try {
+                await api('POST', `/api/kiro/pool/${b.dataset.idx}/status`, { status: b.dataset.kiroStatus });
+                toast(`Status → ${b.dataset.kiroStatus}`);
+                loadKiroPool();
+            } catch (e) { toast(e.message, true); }
+        }));
+        tbody.querySelectorAll('button[data-kiro-del]').forEach(b => b.addEventListener('click', async () => {
+            if (!confirm('Delete this Kiro credential?')) return;
+            try {
+                await api('DELETE', `/api/kiro/pool/${b.dataset.kiroDel}`);
+                toast('Deleted');
+                loadKiroPool();
+            } catch (e) { toast(e.message, true); }
+        }));
+    } catch (e) {
+        toast(`Kiro pool load failed: ${e.message}`, true);
+    }
+}
+$('#kiro-reload').addEventListener('click', async () => {
+    await api('POST', '/api/kiro/pool/reload');
+    loadKiroPool();
+});
+$('#kiro-add-btn').addEventListener('click', async () => {
+    const payload = {
+        label: $('#kiro-add-label').value.trim() || undefined,
+        auth: $('#kiro-add-auth').value,
+        refreshToken: $('#kiro-add-rt').value.trim(),
+        clientId: $('#kiro-add-cid').value.trim() || undefined,
+        clientSecret: $('#kiro-add-cs').value.trim() || undefined
+    };
+    if (!payload.refreshToken) return toast('refreshToken is required', true);
+    if (payload.auth === 'IdC' && (!payload.clientId || !payload.clientSecret)) {
+        return toast('IdC requires clientId + clientSecret', true);
+    }
+    try {
+        const r = await api('POST', '/api/kiro/pool', payload);
+        if (r.validated) {
+            toast(`Credential added (idx=${r.idx}) ✓ refresh succeeded`);
+            ['#kiro-add-label', '#kiro-add-rt', '#kiro-add-cid', '#kiro-add-cs'].forEach(s => $(s).value = '');
+        } else {
+            toast(`Added but refresh failed: ${r.error}`, true);
+        }
+        loadKiroPool();
+    } catch (e) {
+        toast(e.message, true);
+    }
 });
 
 // ---- ACCOUNTS ----

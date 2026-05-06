@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1" />
-<title>sambungin · CodeBuddy Router</title>
+<title>sambungin · Multi-Provider AI Router</title>
 <link rel="stylesheet" href="/style.css" />
 </head>
 <body>
@@ -11,11 +11,12 @@
     <div class="brand">
         <span class="logo-dot"></span>
         <span class="brand-name">sambungin</span>
-        <span class="brand-sub">CodeBuddy Router + Bot Console</span>
+        <span class="brand-sub">Multi-Provider AI Router (CodeBuddy + Kiro)</span>
     </div>
     <nav class="tabs" role="tablist">
         <button class="tab active" data-tab="overview" role="tab">Overview</button>
-        <button class="tab" data-tab="pool" role="tab">Key Pool</button>
+        <button class="tab" data-tab="pool" role="tab">CodeBuddy Pool</button>
+        <button class="tab" data-tab="kiro" role="tab">Kiro Pool</button>
         <button class="tab" data-tab="accounts" role="tab">Accounts</button>
         <button class="tab" data-tab="proxies" role="tab">Proxies</button>
         <button class="tab" data-tab="run" role="tab">Run Bot</button>
@@ -28,11 +29,11 @@
     <section class="panel" data-panel="overview">
         <h2>Overview</h2>
         <div class="card-grid">
-            <div class="card stat"><div class="stat-label">Active keys</div><div class="stat-value" id="stat-active">–</div></div>
-            <div class="card stat"><div class="stat-label">Cooldown</div><div class="stat-value" id="stat-cooldown">–</div></div>
-            <div class="card stat"><div class="stat-label">Dead</div><div class="stat-value" id="stat-dead">–</div></div>
+            <div class="card stat"><div class="stat-label">CodeBuddy active</div><div class="stat-value" id="stat-active">–</div></div>
+            <div class="card stat"><div class="stat-label">CodeBuddy cooldown</div><div class="stat-value" id="stat-cooldown">–</div></div>
+            <div class="card stat"><div class="stat-label">Kiro active</div><div class="stat-value" id="stat-kiro-active">–</div></div>
+            <div class="card stat"><div class="stat-label">Kiro cooldown</div><div class="stat-value" id="stat-kiro-cooldown">–</div></div>
             <div class="card stat"><div class="stat-label">Accounts</div><div class="stat-value" id="stat-accounts">–</div></div>
-            <div class="card stat"><div class="stat-label">Proxies</div><div class="stat-value" id="stat-proxies">–</div></div>
             <div class="card stat"><div class="stat-label">Jobs running</div><div class="stat-value" id="stat-jobs-running">–</div></div>
         </div>
 
@@ -54,21 +55,64 @@
         </div>
     </section>
 
-    <!-- POOL -->
+    <!-- CODEBUDDY POOL -->
     <section class="panel hidden" data-panel="pool">
         <div class="panel-head">
-            <h2>Key Pool</h2>
+            <h2>CodeBuddy Key Pool</h2>
             <div class="panel-actions">
                 <button id="pool-reload" class="btn">Reload from file</button>
             </div>
         </div>
-        <p class="muted">Status auto-refreshes every 5s. Cooldown timer auto-promotes back to active.</p>
+        <p class="muted">Source: <code>codebuddy_keys.txt</code> (format <code>email:ck_xxx.yyy</code>). Status auto-refreshes every 5s. Cooldown timer auto-promotes back to active.</p>
         <div class="table-wrap">
             <table>
                 <thead>
                     <tr><th>Email</th><th>Key</th><th>Status</th><th>Last used</th><th>Cooldown ends</th><th>Usage</th><th>Errors</th><th>Actions</th></tr>
                 </thead>
                 <tbody id="pool-tbody"></tbody>
+            </table>
+        </div>
+    </section>
+
+    <!-- KIRO POOL -->
+    <section class="panel hidden" data-panel="kiro">
+        <div class="panel-head">
+            <h2>Kiro Credential Pool</h2>
+            <div class="panel-actions">
+                <button id="kiro-reload" class="btn">Reload</button>
+            </div>
+        </div>
+        <p class="muted">Each credential = 1 Kiro account (free tier = 50 credits/month + 500 bonus). Stored in <code>kiro_credentials.json</code> (gitignored). Tokens auto-refresh ~1 min before expiry. Cooldown after rate-limit, auto-recovers.</p>
+
+        <div class="card">
+            <div class="card-head"><h3>Add credential</h3></div>
+            <p class="muted">Run <code>kiro-cli login --license free --use-device-flow</code> on a machine that ran Kiro IDE; then extract from <code>~/.local/share/kiro-cli/data.sqlite3</code> (Linux) or <code>~/Library/Application Support/kiro-cli/data.sqlite3</code> (macOS):<br/>
+            <code>sqlite3 data.sqlite3 "SELECT value FROM auth_kv WHERE key='kirocli:odic:token';"</code></p>
+            <div class="form-grid">
+                <label>Label
+                    <input id="kiro-add-label" placeholder="e.g. acct1@gmail.com (BuilderID)" />
+                </label>
+                <label>Auth type
+                    <select id="kiro-add-auth">
+                        <option value="IdC" selected>IdC (Builder ID / DeviceCode — refresh + clientId + clientSecret)</option>
+                        <option value="Social">Social (refreshToken only)</option>
+                    </select>
+                </label>
+                <label>refreshToken<input id="kiro-add-rt" placeholder="refresh token (long string)" /></label>
+                <label>clientId (IdC only)<input id="kiro-add-cid" placeholder="required for IdC" /></label>
+                <label>clientSecret (IdC only)<input id="kiro-add-cs" placeholder="required for IdC" /></label>
+                <div>
+                    <button id="kiro-add-btn" class="btn primary">Add credential</button>
+                </div>
+            </div>
+        </div>
+
+        <div class="table-wrap">
+            <table>
+                <thead>
+                    <tr><th>Label</th><th>Auth</th><th>Status</th><th>Token expires</th><th>Last used</th><th>Cooldown ends</th><th>Usage</th><th>Errors</th><th>Actions</th></tr>
+                </thead>
+                <tbody id="kiro-tbody"></tbody>
             </table>
         </div>
     </section>

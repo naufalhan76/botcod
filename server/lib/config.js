@@ -8,10 +8,41 @@ import { fileURLToPath } from 'url';
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const ROOT = path.resolve(__dirname, '..', '..');
 
+const CODEBUDDY_MODELS = [
+    'auto-chat',
+    'claude-opus-4.6',
+    'gpt-5.5',
+    'gpt-5.2',
+    'gpt-5.1',
+    'gpt-5',
+    'gpt-5-codex',
+    'o3',
+    'o4-mini',
+    'gemini-3.1-pro',
+    'gemini-3.0-pro',
+    'gemini-2.5-pro',
+    'gemini-2.5-flash',
+    'glm-4.6',
+    'deepseek-v3.2',
+    'deepseek-v3'
+];
+
+const KIRO_MODELS = [
+    'claude-sonnet-4.5',
+    'claude-sonnet-4',
+    'claude-3.7-sonnet',
+    'deepseek-v3.2-kiro',
+    'minimax-m2.5',
+    'minimax-m2.1',
+    'glm-5',
+    'qwen3-coder-next'
+];
+
 const DEFAULTS = {
     PORT: 4141,
     HOST: '127.0.0.1',
     KEYS_FILE: path.join(ROOT, 'codebuddy_keys.txt'),
+    KIRO_CREDS_FILE: path.join(ROOT, 'kiro_credentials.json'),
     ACCOUNTS_FILE: path.join(ROOT, 'accounts.txt'),
     PROXIES_FILE: path.join(ROOT, 'proxies.txt'),
     STATE_FILE: path.join(ROOT, 'server', 'state.json'),
@@ -22,30 +53,24 @@ const DEFAULTS = {
     MAX_ROTATIONS_PER_REQUEST: 5,
     UPSTREAM_TIMEOUT_MS: 5 * 60 * 1000,
     DASHBOARD_PASSWORD: null, // optional, if set requires X-Dashboard-Password header
-    EXPOSED_MODELS: [
-        'auto-chat',
-        'claude-opus-4.6',
-        'gpt-5.5',
-        'gpt-5.2',
-        'gpt-5.1',
-        'gpt-5',
-        'gpt-5-codex',
-        'o3',
-        'o4-mini',
-        'gemini-3.1-pro',
-        'gemini-3.0-pro',
-        'gemini-2.5-pro',
-        'gemini-2.5-flash',
-        'glm-4.6',
-        'deepseek-v3.2',
-        'deepseek-v3'
-    ]
+    EXPOSED_MODELS: [...CODEBUDDY_MODELS, ...KIRO_MODELS],
+    // Each model -> 'codebuddy' | 'kiro'. Editable via Settings tab.
+    MODEL_PROVIDERS: {
+        ...Object.fromEntries(CODEBUDDY_MODELS.map(m => [m, 'codebuddy'])),
+        ...Object.fromEntries(KIRO_MODELS.map(m => [m, 'kiro']))
+    }
 };
+
+export { CODEBUDDY_MODELS, KIRO_MODELS };
 
 function envOverride(key, parser = String) {
     const v = process.env[`SAMBUNGIN_${key}`] ?? process.env[`BOTCOD_${key}`] ?? process.env[`ROUTER_${key}`];
     if (v === undefined || v === '') return undefined;
     try { return parser(v); } catch { return undefined; }
+}
+
+export function providerForModel(model) {
+    return _config.MODEL_PROVIDERS?.[model] || null;
 }
 
 function loadPersistedSettings(file) {

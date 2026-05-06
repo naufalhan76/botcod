@@ -1,18 +1,20 @@
 # sambungin
 
-> Local "router" yang nyambungin OpenCode (atau OpenAI client apapun) ke API key CodeBuddy.ai lo, plus auto-rotate kalau salah satu key kena limit. Dilengkapi bot signup buat ngegandain key dan dashboard buat manage semuanya.
+> Local multi-provider "router" yang nyambungin OpenCode (atau OpenAI client apapun) ke beberapa provider AI sekaligus (CodeBuddy.ai + Kiro IDE), dengan auto-rotate kalau salah satu key/credential kena limit. Dilengkapi bot signup buat CodeBuddy + dashboard buat manage semuanya.
 
 ```
-OpenCode  ─┐
-OpenAI SDK ├──► sambungin (localhost:4141) ──► https://www.codebuddy.ai
-curl       ─┘    ↑                              + auto-rotate Bearer key
-                 │ pakai key dari codebuddy_keys.txt
-                 │
-              dashboard (localhost:4141)
-              ├ status pool key (active / cooldown / dead)
-              ├ edit accounts.txt + proxies.txt
-              ├ run signup bot batch + live log
-              └ tune cooldown / model list
+OpenCode  ─┐                                          ┌─► https://www.codebuddy.ai (pakai ck_*)
+OpenAI SDK ├──► sambungin (localhost:4141) ──▼           (claude-opus-4.6, gpt-5.5, gemini-3.1-pro, dst.)
+curl       ─┘   │                                       │
+               │   model → provider routing            └─► https://codewhisperer.us-east-1.amazonaws.com (Kiro)
+               │                                          (claude-sonnet-4.5, glm-5, qwen3-coder-next, dst.)
+               │
+            dashboard (localhost:4141)
+            ├ CodeBuddy Pool: status `ck_*` keys
+            ├ Kiro Pool: status refresh tokens + auto-refresh
+            ├ edit accounts.txt + proxies.txt
+            ├ run signup bot batch + live log
+            └ tune cooldown / model list
 ```
 
 ## Daftar isi
@@ -21,26 +23,29 @@ curl       ─┘    ↑                              + auto-rotate Bearer key
 2. [Requirement](#requirement)
 3. [Install](#install)
 4. [Cara pake — quick start](#cara-pake--quick-start)
-5. [Konfigurasi OpenCode (penting)](#konfigurasi-opencode-penting)
-6. [Konfigurasi OpenAI SDK / curl](#konfigurasi-openai-sdk--curl)
-7. [Cara kerja rotation](#cara-kerja-rotation)
-8. [Daftar model yang bisa dipake](#daftar-model-yang-bisa-dipake)
-9. [Bot signup (Unlucid + CodeBuddy)](#bot-signup-unlucid--codebuddy)
-10. [Konfigurasi lanjutan (env var)](#konfigurasi-lanjutan-env-var)
-11. [Troubleshooting](#troubleshooting)
+5. [Setup provider Kiro (extra)](#setup-provider-kiro-extra)
+6. [Konfigurasi OpenCode (penting)](#konfigurasi-opencode-penting)
+7. [Konfigurasi OpenAI SDK / curl](#konfigurasi-openai-sdk--curl)
+8. [Cara kerja rotation + multi-provider](#cara-kerja-rotation--multi-provider)
+9. [Daftar model yang bisa dipake](#daftar-model-yang-bisa-dipake)
+10. [Bot signup (Unlucid + CodeBuddy)](#bot-signup-unlucid--codebuddy)
+11. [Konfigurasi lanjutan (env var)](#konfigurasi-lanjutan-env-var)
+12. [Troubleshooting](#troubleshooting)
 
 ---
 
 ## Kenapa pake sambungin
 
-CodeBuddy.ai punya tier gratis dengan limit harian per akun. Kalau lo signup banyak akun (pake bot bawaan repo ini), lo bakal punya banyak `ck_…` key. Tapi OpenCode (atau klien OpenAI lain) cuma support **satu** API key per provider.
+CodeBuddy.ai dan Kiro IDE punya tier gratis dengan limit harian/bulanan per akun. Kalau lo punya banyak akun, lo bakal punya banyak `ck_…` key (CodeBuddy) + banyak refresh token (Kiro). Tapi OpenCode (atau klien OpenAI lain) cuma support **satu** baseURL + satu API key per provider.
 
 `sambungin` jadi proxy lokal yang:
 
-- Kasih satu endpoint OpenAI-compatible (`http://127.0.0.1:4141/v1`).
-- Pegang **semua** key lo di pool.
+- Kasih **satu** endpoint OpenAI-compatible (`http://127.0.0.1:4141/v1`) yang gabungin model dari beberapa provider sekaligus.
+- Auto-pilih provider berdasarkan model: minta `claude-opus-4.6` → ke CodeBuddy, minta `claude-sonnet-4.5` → ke Kiro.
+- Pegang **semua** key/credential lo di pool per-provider.
 - Kalau key kena `429` / quota → mark cooldown, ganti ke key berikutnya **mid-request**, klien ga ngerasain apa-apa.
 - Kalau key kena `401`/`403` → mark dead, ganti ke key berikutnya.
+- Untuk Kiro: auto-refresh access token via OIDC ~1 menit sebelum expire (gratis tinggal kasih refresh token sekali).
 - Memori chat tetep utuh karena history dikirim ulang tiap request oleh klien (sifat OpenAI API).
 
 ---
@@ -69,11 +74,14 @@ cd sambungin
 # 2. Install dependency
 npm install
 
-# 3. Siapin file API key (minimal 1 line)
+# 3. Siapin file API key (minimal 1 line, atau lewat dashboard nanti)
 echo "your.email@gmail.com:ck_xxxxx.yyyyyyyy" > codebuddy_keys.txt
 #       │                  │
 #       │                  └─ API key dari https://www.codebuddy.ai/profile/keys
 #       └─ email akun (opsional, cuma label, ga dikirim ke upstream)
+#
+# (opsional) Kiro credential di-add nanti via dashboard tab "Kiro Pool".
+# Kalau ga di-set, model Kiro tetep di-list tapi return 503 sampai lo add minimal 1 cred.
 
 # 4. Jalanin server
 npm run dev
@@ -121,6 +129,62 @@ curl -N -X POST http://127.0.0.1:4141/v1/chat/completions \
 ```
 
 Lo bakal liat SSE chunks `data: {…}` ngalir.
+
+---
+
+## Setup provider Kiro (extra)
+
+Sambungin udah support routing ke **Kiro IDE** upstream juga. Free tier Kiro = 50 credits/bulan + 500 bonus, dengan model:
+
+- `claude-sonnet-4.5` — Claude Sonnet 4.5 (1M context)
+- `claude-sonnet-4` — Claude Sonnet 4
+- `claude-3.7-sonnet` — Claude 3.7 Sonnet
+- `deepseek-v3.2-kiro` — DeepSeek V3.2 (Kiro version)
+- `minimax-m2.5`, `minimax-m2.1`
+- `glm-5`, `qwen3-coder-next`
+
+Kiro pake OAuth (refresh token), bukan API key. Cara setup:
+
+### Step 1. Login lewat Kiro CLI
+
+Install [kiro-cli](https://docs.kiro.dev/) di mesin lo, terus login:
+```bash
+kiro-cli login --license free --use-device-flow
+# Browser kebuka, login pake Google/email, approve device.
+```
+
+### Step 2. Extract refresh token + client creds
+
+Di mesin yang sama lo run kiro-cli:
+
+**Linux:**
+```bash
+sqlite3 ~/.local/share/kiro-cli/data.sqlite3 \
+  "SELECT value FROM auth_kv WHERE key='kirocli:odic:token';"
+
+sqlite3 ~/.local/share/kiro-cli/data.sqlite3 \
+  "SELECT value FROM auth_kv WHERE key='kirocli:odic:client-registration';"
+```
+
+**macOS:** ganti path ke `~/Library/Application Support/kiro-cli/data.sqlite3`.
+
+Output kedua query bakal JSON. Yang pertama berisi `refresh_token` + `access_token`. Yang kedua berisi `client_id` + `client_secret`.
+
+### Step 3. Add ke sambungin lewat dashboard
+
+1. Buka http://127.0.0.1:4141/ → tab **Kiro Pool**.
+2. Klik field "refreshToken" → paste nilai `refresh_token`.
+3. Auth type pilih **IdC (Builder ID / DeviceCode)**.
+4. Paste `client_id` dan `client_secret`.
+5. Klik **Add credential**. Sambungin bakal langsung validate (refresh token → dapet access token). Kalau toast bilang `✓ refresh succeeded`, status `active`, lo udah bisa pake model Kiro lewat OpenCode.
+
+### Auto-refresh
+
+Sambungin auto-refresh access token ~1 menit sebelum expire (default ~1 jam TTL). Refresh token bertahan lebih lama. Kalau refresh token expired (jarang), tinggal ulangi step 1-3.
+
+### Multi-akun Kiro
+
+Tiap akun Kiro = 1 credential row. Lo bisa add berapapun via dashboard, sambungin auto-rotate kalau salah satu kena rate limit.
 
 ---
 
@@ -221,18 +285,24 @@ for await (const chunk of resp) process.stdout.write(chunk.choices[0]?.delta?.co
 
 ---
 
-## Cara kerja rotation
+## Cara kerja rotation + multi-provider
 
 Tiap request masuk `/v1/chat/completions`:
 
-1. Router pilih key dengan **`last_used_at` paling lama** (round-robin antar key yang ga cooldown / dead).
-2. Forward ke `https://www.codebuddy.ai/v2/chat/completions` dengan `Authorization: Bearer <key>`.
-3. Kalau upstream balik:
-   - **`401` / `403`** → mark **dead**, retry sama key berikutnya.
-   - **`429` / `402`** atau `code 11128` / "rate limit" / "quota" → mark **cooldown** (default 24 jam, configurable), retry sama key berikutnya.
+1. Router lookup `body.model` di `MODEL_PROVIDERS` map → tentuin provider (`codebuddy` atau `kiro`).
+2. Pilih key dari pool **provider tersebut** dengan `last_used_at` paling lama (round-robin antar key yang ga cooldown / dead).
+3. Untuk Kiro: kalau access token udah mau expire (<1 menit), refresh dulu via OIDC (`oidc.us-east-1.amazonaws.com/token` untuk IdC, atau `prod.us-east-1.auth.desktop.kiro.dev/refreshToken` untuk Social).
+4. Forward ke upstream provider:
+   - CodeBuddy → `Authorization: Bearer <ck_*>`
+   - Kiro → `Authorization: Bearer <accessToken>` ke `codewhisperer.us-east-1.amazonaws.com/generateAssistantResponse`
+5. Kalau upstream balik:
+   - **`401` / `403`** → mark **dead** (di pool provider tsb), retry sama key/cred berikutnya.
+   - **`429` / `402`** atau "rate limit" / "quota" → mark **cooldown** (default 24 jam, configurable), retry sama key/cred berikutnya.
    - **Error lain** → propagasi ke klien (no rotation).
-4. Kalau stream **udah mulai nulis** ke klien terus error mid-stream → klien terima error apa adanya (no retry, karena byte udah terkirim).
-5. Setelah cooldown abis (default 24h), key auto-promote balik jadi active.
+6. Kalau stream **udah mulai nulis** ke klien terus error mid-stream → klien terima error apa adanya (no retry, karena byte udah terkirim).
+7. Setelah cooldown abis (default 24h), key auto-promote balik jadi active.
+
+Rotation **stays within the same provider** — kalau lo minta `claude-sonnet-4.5` (Kiro) dan semua Kiro creds cooldown, router balik `503 no_creds_available`, **bukan** auto-fallback ke CodeBuddy. Logic ini sengaja: model Kiro vs CodeBuddy beda kapabilitas + harga.
 
 Default max rotation per request: **5 key**. Kalau semua 5 key fail, router balikin `503 all_keys_failed` ke klien.
 
@@ -240,7 +310,7 @@ Default max rotation per request: **5 key**. Kalau semua 5 key fail, router bali
 
 ## Daftar model yang bisa dipake
 
-Di-verify langsung dari `https://www.codebuddy.ai/v2/chat/completions` pake key real:
+### Provider: CodeBuddy (`https://www.codebuddy.ai/v2/chat/completions`)
 
 | Exposed name       | Upstream model              |
 | ------------------ | --------------------------- |
@@ -261,7 +331,22 @@ Di-verify langsung dari `https://www.codebuddy.ai/v2/chat/completions` pake key 
 | `deepseek-v3.2`    | deepseek-v3.2               |
 | `deepseek-v3`      | deepseek-v3                 |
 
-Kalau model ga ada di akun lo, upstream balikin `code 11102 — service info not found`. Edit list di tab **Settings** (atau langsung di `server/lib/config.js → EXPOSED_MODELS`) supaya nyocokin sama akun lo.
+### Provider: Kiro (`https://codewhisperer.us-east-1.amazonaws.com/generateAssistantResponse`)
+
+| Exposed name          | Upstream model ID                        |
+| --------------------- | ---------------------------------------- |
+| `claude-sonnet-4.5`   | `CLAUDE_SONNET_4_5_20250929_V1_0`        |
+| `claude-sonnet-4`     | `CLAUDE_SONNET_4_20250514_V1_0`          |
+| `claude-3.7-sonnet`   | `CLAUDE_3_7_SONNET_20250219_V1_0`        |
+| `deepseek-v3.2-kiro`  | `DEEPSEEK_V3_2_EXP_V1_0`                 |
+| `minimax-m2.5`        | `MINIMAX_M2_FP8_V1_0`                    |
+| `minimax-m2.1`        | `MINIMAX_M2_5_V1_0`                      |
+| `glm-5`               | `GLM_5_FP8_V1_0`                         |
+| `qwen3-coder-next`    | `QWEN3_CODER_NEXT_V1_0`                  |
+
+Mapping `model → provider` di-store di `server/lib/config.js → MODEL_PROVIDERS`. Kalau lo nambah model baru di Settings tab, jangan lupa juga set provider-nya di `MODEL_PROVIDERS`.
+
+Kalau model CodeBuddy ga ada di akun lo, upstream balikin `code 11102 — service info not found`. Edit list di tab **Settings** (atau langsung di `server/lib/config.js → EXPOSED_MODELS`) supaya nyocokin sama akun lo.
 
 ---
 

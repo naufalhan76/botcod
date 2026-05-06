@@ -6,3 +6,4 @@ server/state.json
 server/settings.json
 .DS_Store
 *.log
+kiro_credentials.json
