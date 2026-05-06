@@ -60,6 +60,9 @@ function onTabSwitch(tab) {
     } else if (tab === 'run') {
         loadJobs();
         _refreshTimers.jobs = setInterval(loadJobs, 5000);
+    } else if (tab === 'tempmail') {
+        loadTempmail();
+        _refreshTimers.tempmail = setInterval(loadTempmail, 5000);
     } else if (tab === 'settings') {
         loadSettings();
     }
@@ -432,6 +435,279 @@ function fmtTimeShort(ts) {
 }
 function modeName(m) {
     return { 1: 'Unlucid', 2: 'CodeBuddy', 3: 'Both' }[m] || `mode ${m}`;
+}
+
+// ---- TEMP MAIL ----
+
+let _tmViewerAddress = null;
+
+async function loadTempmail() {
+    try {
+        const data = await api('GET', '/api/tempmail/overview');
+        renderTmInboxes(data.inboxes);
+        renderTmDomains(data.domains, data.inboxes);
+        renderTmAddresses(data.addresses, data.domains);
+        // Auto-collapse the setup card once at least one inbox + one domain exist.
+        const card = $('#tm-setup-card');
+        if (card && data.summary.configured && card.hasAttribute('open')) {
+            card.removeAttribute('open');
+        }
+        if (_tmViewerAddress) await loadTmMessages(_tmViewerAddress);
+    } catch (e) {
+        toast(`Temp Mail load failed: ${e.message}`, true);
+    }
+}
+
+function renderTmInboxes(inboxes) {
+    const tbody = $('#tm-inbox-tbody');
+    if (!inboxes.length) {
+        tbody.innerHTML = `<tr><td colspan="6" class="muted">No inbox yet — add one above.</td></tr>`;
+        return;
+    }
+    tbody.innerHTML = inboxes.map(i => `
+        <tr>
+            <td>${escapeHtml(i.label)}</td>
+            <td><code>${escapeHtml(i.user)}</code></td>
+            <td>${escapeHtml(i.host)}:${i.port}</td>
+            <td>${i.lastTestedAt ? fmtTimeShort(i.lastTestedAt) : '–'}
+                ${i.lastTestResult && !i.lastTestResult.ok ? `<br/><span class="error-text">${escapeHtml(i.lastTestResult.error || '')}</span>` : ''}
+            </td>
+            <td>${i.lastUid || 0}</td>
+            <td><button class="btn danger" data-tm-inbox-del="${i.id}">Delete</button></td>
+        </tr>
+    `).join('');
+    tbody.querySelectorAll('button[data-tm-inbox-del]').forEach(b => b.addEventListener('click', async () => {
+        if (!confirm(`Delete inbox ${b.dataset.tmInboxDel}? Domains attached must be removed first.`)) return;
+        try {
+            await api('DELETE', `/api/tempmail/inboxes/${b.dataset.tmInboxDel}`);
+            toast('Inbox deleted');
+            await loadTempmail();
+        } catch (e) { toast(e.message, true); }
+    }));
+}
+
+function renderTmDomains(domains, inboxes) {
+    // Populate inbox dropdowns
+    const opts = inboxes.map(i => `<option value="${i.id}">${escapeHtml(i.label)} — ${escapeHtml(i.user)}</option>`).join('');
+    $('#tm-domain-inbox').innerHTML = opts || '<option value="">(add an inbox first)</option>';
+
+    const tbody = $('#tm-domain-tbody');
+    if (!domains.length) {
+        tbody.innerHTML = `<tr><td colspan="3" class="muted">No domains yet.</td></tr>`;
+        return;
+    }
+    tbody.innerHTML = domains.map(d => `
+        <tr>
+            <td><code>${escapeHtml(d.domain)}</code></td>
+            <td>${escapeHtml(d.inboxLabel)}</td>
+            <td><button class="btn danger" data-tm-domain-del="${d.domain}">Delete</button></td>
+        </tr>
+    `).join('');
+    tbody.querySelectorAll('button[data-tm-domain-del]').forEach(b => b.addEventListener('click', async () => {
+        if (!confirm(`Delete domain ${b.dataset.tmDomainDel}? Existing temp addresses must be revoked first.`)) return;
+        try {
+            await api('DELETE', `/api/tempmail/domains/${b.dataset.tmDomainDel}`);
+            toast('Domain deleted');
+            await loadTempmail();
+        } catch (e) { toast(e.message, true); }
+    }));
+}
+
+function renderTmAddresses(addresses, domains) {
+    const opts = domains.map(d => `<option value="${d.domain}">${d.domain}</option>`).join('');
+    $('#tm-address-domain').innerHTML = opts || '<option value="">(add a domain first)</option>';
+
+    const tbody = $('#tm-address-tbody');
+    if (!addresses.length) {
+        tbody.innerHTML = `<tr><td colspan="6" class="muted">No temp addresses yet — generate one above.</td></tr>`;
+        return;
+    }
+    tbody.innerHTML = addresses.map(a => `
+        <tr>
+            <td><code>${escapeHtml(a.address)}</code>
+                <button class="btn-mini" data-tm-copy="${escapeHtml(a.address)}">copy</button>
+            </td>
+            <td>${escapeHtml(a.label || '')}</td>
+            <td>${fmtTime(a.createdAt)}</td>
+            <td>${a.lastSeenAt ? fmtTime(a.lastSeenAt) : '–'}</td>
+            <td>${a.messageCount}</td>
+            <td>
+                <button class="btn" data-tm-view="${escapeHtml(a.address)}">View inbox</button>
+                <button class="btn danger" data-tm-revoke="${escapeHtml(a.address)}">Revoke</button>
+            </td>
+        </tr>
+    `).join('');
+    tbody.querySelectorAll('button[data-tm-copy]').forEach(b => b.addEventListener('click', () => {
+        navigator.clipboard.writeText(b.dataset.tmCopy).then(() => toast('Address copied'));
+    }));
+    tbody.querySelectorAll('button[data-tm-view]').forEach(b => b.addEventListener('click', () => {
+        openTmViewer(b.dataset.tmView);
+    }));
+    tbody.querySelectorAll('button[data-tm-revoke]').forEach(b => b.addEventListener('click', async () => {
+        if (!confirm(`Revoke ${b.dataset.tmRevoke}? Cached messages for this address will also be deleted.`)) return;
+        try {
+            await api('DELETE', `/api/tempmail/addresses/${encodeURIComponent(b.dataset.tmRevoke)}`);
+            toast('Address revoked');
+            if (_tmViewerAddress === b.dataset.tmRevoke) closeTmViewer();
+            await loadTempmail();
+        } catch (e) { toast(e.message, true); }
+    }));
+}
+
+async function openTmViewer(address) {
+    _tmViewerAddress = address;
+    $('#tm-viewer-addr').textContent = address;
+    $('#tm-viewer').classList.remove('hidden');
+    $('#tm-viewer-extract-out').classList.add('hidden');
+    $('#tm-viewer-extract-out').textContent = '';
+    await loadTmMessages(address);
+}
+
+function closeTmViewer() {
+    _tmViewerAddress = null;
+    $('#tm-viewer').classList.add('hidden');
+    $('#tm-viewer-tbody').innerHTML = '';
+}
+
+async function loadTmMessages(address) {
+    try {
+        const data = await api('GET', `/api/tempmail/addresses/${encodeURIComponent(address)}/messages?limit=50`);
+        const tbody = $('#tm-viewer-tbody');
+        if (!data.messages.length) {
+            tbody.innerHTML = `<tr><td colspan="4" class="muted">No mail yet for this address. Polling runs every 10s.</td></tr>`;
+            return;
+        }
+        tbody.innerHTML = data.messages.map(m => `
+            <tr>
+                <td>${fmtTime(m.ts)}</td>
+                <td>${escapeHtml(m.from)}</td>
+                <td>${escapeHtml(m.subject)}</td>
+                <td class="snippet-cell">${escapeHtml(m.snippet || '')}</td>
+            </tr>
+        `).join('');
+    } catch (e) {
+        toast(`Inbox load failed: ${e.message}`, true);
+    }
+}
+
+$('#tm-inbox-test').addEventListener('click', async () => {
+    const status = $('#tm-inbox-status');
+    status.textContent = 'Testing…';
+    try {
+        const r = await api('POST', '/api/tempmail/inboxes/test', {
+            host: $('#tm-inbox-host').value.trim(),
+            port: Number($('#tm-inbox-port').value) || 993,
+            secure: true,
+            user: $('#tm-inbox-user').value.trim(),
+            pass: $('#tm-inbox-pass').value
+        });
+        if (r.ok) {
+            status.textContent = `✓ connected in ${r.connectedInMs}ms (${r.inboxMessageCount} msgs in INBOX)`;
+            status.style.color = 'var(--accent)';
+        } else {
+            status.textContent = `✗ ${r.error}`;
+            status.style.color = 'var(--danger)';
+        }
+    } catch (e) {
+        status.textContent = `✗ ${e.message}`;
+        status.style.color = 'var(--danger)';
+    }
+});
+
+$('#tm-inbox-add').addEventListener('click', async () => {
+    try {
+        await api('POST', '/api/tempmail/inboxes', {
+            label: $('#tm-inbox-label').value.trim() || undefined,
+            host: $('#tm-inbox-host').value.trim(),
+            port: Number($('#tm-inbox-port').value) || 993,
+            secure: true,
+            user: $('#tm-inbox-user').value.trim(),
+            pass: $('#tm-inbox-pass').value
+        });
+        toast('Inbox saved');
+        ['#tm-inbox-label', '#tm-inbox-user', '#tm-inbox-pass'].forEach(s => $(s).value = '');
+        $('#tm-inbox-status').textContent = '';
+        await loadTempmail();
+    } catch (e) {
+        toast(e.message, true);
+    }
+});
+
+$('#tm-domain-add').addEventListener('click', async () => {
+    try {
+        await api('POST', '/api/tempmail/domains', {
+            domain: $('#tm-domain-name').value.trim(),
+            inboxId: $('#tm-domain-inbox').value
+        });
+        toast('Domain added');
+        $('#tm-domain-name').value = '';
+        await loadTempmail();
+    } catch (e) {
+        toast(e.message, true);
+    }
+});
+
+$('#tm-address-gen').addEventListener('click', async () => {
+    try {
+        const row = await api('POST', '/api/tempmail/addresses', {
+            domain: $('#tm-address-domain').value,
+            prefix: $('#tm-address-prefix').value.trim() || undefined,
+            label: $('#tm-address-label').value.trim() || undefined
+        });
+        toast(`Generated ${row.address}`);
+        $('#tm-address-prefix').value = '';
+        $('#tm-address-label').value = '';
+        await loadTempmail();
+    } catch (e) {
+        toast(e.message, true);
+    }
+});
+
+$('#tm-poll').addEventListener('click', async () => {
+    $('#tm-poll').disabled = true;
+    try {
+        const r = await api('POST', '/api/tempmail/poll');
+        if (r.skipped) {
+            toast('Already polling, try again in a sec');
+        } else if (r.results) {
+            const total = r.results.reduce((sum, x) => sum + (x.fetched || 0), 0);
+            const failed = r.results.filter(x => !x.ok);
+            if (failed.length) {
+                toast(`Polled (${total} new). ${failed.length} inbox failed: ${failed[0].error}`, true);
+            } else {
+                toast(`Polled ${r.results.length} inbox(es), ${total} new message(s)`);
+            }
+        }
+        await loadTempmail();
+    } catch (e) {
+        toast(e.message, true);
+    } finally {
+        $('#tm-poll').disabled = false;
+    }
+});
+
+$('#tm-viewer-close').addEventListener('click', closeTmViewer);
+
+$('#tm-viewer-extract').addEventListener('click', async () => {
+    if (!_tmViewerAddress) return;
+    try {
+        const r = await api('GET', `/api/tempmail/addresses/${encodeURIComponent(_tmViewerAddress)}/extract`);
+        const out = $('#tm-viewer-extract-out');
+        out.classList.remove('hidden');
+        if (r.ok) {
+            out.textContent = `${r.kind.toUpperCase()}: ${r.value}\nFrom: ${r.from}\nSubject: ${r.subject}\nReceived: ${fmtTime(r.ts)}`;
+        } else {
+            out.textContent = `No code/link extracted: ${r.reason}`;
+        }
+    } catch (e) {
+        toast(e.message, true);
+    }
+});
+
+function escapeHtml(s) {
+    return String(s ?? '').replace(/[&<>"']/g, c => ({
+        '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'
+    }[c]));
 }
 
 // ---- init ----

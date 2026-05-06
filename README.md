@@ -29,8 +29,9 @@ curl       ─┘   │                                       │
 8. [Cara kerja rotation + multi-provider](#cara-kerja-rotation--multi-provider)
 9. [Daftar model yang bisa dipake](#daftar-model-yang-bisa-dipake)
 10. [Bot signup (Unlucid + CodeBuddy)](#bot-signup-unlucid--codebuddy)
-11. [Konfigurasi lanjutan (env var)](#konfigurasi-lanjutan-env-var)
-12. [Troubleshooting](#troubleshooting)
+11. [Temp Mail (catchall via Cloudflare → Gmail IMAP)](#temp-mail-catchall-via-cloudflare--gmail-imap)
+12. [Konfigurasi lanjutan (env var)](#konfigurasi-lanjutan-env-var)
+13. [Troubleshooting](#troubleshooting)
 
 ---
 
@@ -422,6 +423,50 @@ npm start
 4. Redirect kembali ke Unlucid
 
 Tiap service auto-retry 3x kalau timeout / fail.
+
+---
+
+## Temp Mail (catchall via Cloudflare → Gmail IMAP)
+
+Tab **Temp Mail** di dashboard ngehandle alamat email sekali pakai untuk signup-an (target awal: ChatGPT Pro). Arsitekturnya simple:
+
+```
+xxxx@domainlo.com → MX (Cloudflare) → Email Routing catch-all
+                                              ↓
+                                      gmail-tujuan@gmail.com
+                                              ↓ IMAP polling tiap 10s
+                                          sambungin
+```
+
+**State persistent di `server/tempmail.json`** (gitignored): inbox list, domain list, address pool, cache message + UID checkpoint per inbox. Restart server ga ngewipe apa-apa.
+
+### Setup (sekali aja per domain + per Gmail)
+
+1. **Cloudflare Email Routing** untuk tiap domain:
+   - Domain → Email → Email Routing → Get started
+   - Cloudflare auto-add MX + SPF, accept aja
+   - Tambah destination address (Gmail tujuan), klik link verifikasi yang Cloudflare kirim
+   - Routing rules → enable Catch-all → action "Send to an email" → pilih Gmail tujuan
+2. **Gmail App Password** untuk Gmail tujuan:
+   - Aktifin 2FA di Google account
+   - Buka https://myaccount.google.com/apppasswords, generate password (16 karakter)
+3. Di dashboard tab **Temp Mail**:
+   - Form **Gmail inbox** → paste Gmail address + app password → klik **Test connection** (validasi IMAP) → **Save inbox**
+   - Form **Domain** → ketik domain lo → pilih Gmail inbox tujuan → **Add domain**
+   - Form **Generate address** → pilih domain → optional prefix/label → **Generate** → dapet `prefix.xxxxxxxx@domainlo.com`
+
+### API endpoints (buat integrasi bot)
+
+| Method | Path | Use case |
+| --- | --- | --- |
+| GET | `/api/tempmail/overview` | Snapshot semua state |
+| POST | `/api/tempmail/addresses` | Generate address baru, body `{ domain, prefix?, label? }` |
+| GET | `/api/tempmail/addresses/:address/messages` | List mail untuk address itu |
+| GET | `/api/tempmail/addresses/:address/extract` | Auto-extract OTP 6 digit / kode `code: XXXX` / magic link URL pertama |
+| POST | `/api/tempmail/poll` | Trigger poll manual (poll otomatis jalan tiap 10s) |
+| DELETE | `/api/tempmail/addresses/:address` | Revoke address + drop cached messages |
+
+Bot autocreate ChatGPT (Phase 2) bakal pake `POST /addresses` → submit address ke OpenAI signup form → loop `GET /addresses/:addr/extract` sampai dapet OTP.
 
 ---
 

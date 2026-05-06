@@ -7,3 +7,4 @@ server/settings.json
 .DS_Store
 *.log
 kiro_credentials.json
+server/tempmail.json

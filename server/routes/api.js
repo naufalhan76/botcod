@@ -38,6 +38,13 @@ import {
     listKiroCreds, summaryKiro, addKiroCred, removeKiroCred,
     setKiroCredStatus, getAccessTokenForCred, loadKiroStore
 } from '../lib/providers/kiro/credentials.js';
+import {
+    listInboxes, addInbox, updateInbox, removeInbox, testInboxCredentials,
+    listDomains, addDomain, updateDomain, removeDomain,
+    listAddresses, generateAddress, revokeAddress,
+    listMessages, getMessage, extractCode,
+    pollAllInboxes, tempmailSummary
+} from '../lib/tempmail.js';
 
 const router = Router();
 
@@ -46,6 +53,7 @@ router.get('/overview', (req, res) => {
     res.json({
         pool: summary(),
         kiro_pool: summaryKiro(),
+        tempmail: tempmailSummary(),
         accounts: loadLines(cfg.ACCOUNTS_FILE).length,
         proxies: loadLines(cfg.PROXIES_FILE).length,
         jobs_total: listJobs().length,
@@ -93,6 +101,114 @@ router.post('/kiro/pool/:idx/status', (req, res) => {
     } catch (e) {
         res.status(400).json({ error: e.message });
     }
+});
+
+// ---- Temp mail ----
+router.get('/tempmail/overview', (req, res) => {
+    res.json({
+        summary: tempmailSummary(),
+        inboxes: listInboxes(),
+        domains: listDomains(),
+        addresses: listAddresses()
+    });
+});
+
+// Inboxes (IMAP destinations)
+router.get('/tempmail/inboxes', (req, res) => res.json({ inboxes: listInboxes() }));
+router.post('/tempmail/inboxes', (req, res) => {
+    try {
+        const id = addInbox(req.body || {});
+        res.json({ id });
+    } catch (e) {
+        res.status(400).json({ error: e.message });
+    }
+});
+router.put('/tempmail/inboxes/:id', (req, res) => {
+    try {
+        updateInbox(req.params.id, req.body || {});
+        res.json({ ok: true });
+    } catch (e) {
+        res.status(400).json({ error: e.message });
+    }
+});
+router.delete('/tempmail/inboxes/:id', (req, res) => {
+    try {
+        removeInbox(req.params.id);
+        res.json({ ok: true });
+    } catch (e) {
+        res.status(400).json({ error: e.message });
+    }
+});
+router.post('/tempmail/inboxes/test', async (req, res) => {
+    try {
+        const result = await testInboxCredentials(req.body || {});
+        res.json(result);
+    } catch (e) {
+        res.status(400).json({ ok: false, error: e.message });
+    }
+});
+
+// Domains
+router.get('/tempmail/domains', (req, res) => res.json({ domains: listDomains() }));
+router.post('/tempmail/domains', (req, res) => {
+    try {
+        addDomain(req.body || {});
+        res.json({ ok: true });
+    } catch (e) {
+        res.status(400).json({ error: e.message });
+    }
+});
+router.put('/tempmail/domains/:domain', (req, res) => {
+    try {
+        updateDomain(req.params.domain, req.body || {});
+        res.json({ ok: true });
+    } catch (e) {
+        res.status(400).json({ error: e.message });
+    }
+});
+router.delete('/tempmail/domains/:domain', (req, res) => {
+    try {
+        removeDomain(req.params.domain);
+        res.json({ ok: true });
+    } catch (e) {
+        res.status(400).json({ error: e.message });
+    }
+});
+
+// Addresses
+router.get('/tempmail/addresses', (req, res) => res.json({ addresses: listAddresses() }));
+router.post('/tempmail/addresses', (req, res) => {
+    try {
+        const row = generateAddress(req.body || {});
+        res.json(row);
+    } catch (e) {
+        res.status(400).json({ error: e.message });
+    }
+});
+router.delete('/tempmail/addresses/:address', (req, res) => {
+    try {
+        revokeAddress(req.params.address);
+        res.json({ ok: true });
+    } catch (e) {
+        res.status(400).json({ error: e.message });
+    }
+});
+
+// Messages
+router.get('/tempmail/addresses/:address/messages', (req, res) => {
+    res.json({ messages: listMessages(req.params.address, { limit: Number(req.query.limit) || 50 }) });
+});
+router.get('/tempmail/messages/:id', (req, res) => {
+    const m = getMessage(req.params.id);
+    if (!m) return res.status(404).json({ error: 'not found' });
+    res.json(m);
+});
+router.get('/tempmail/addresses/:address/extract', (req, res) => {
+    res.json(extractCode(req.params.address));
+});
+
+router.post('/tempmail/poll', async (req, res) => {
+    res.json(await pollAllInboxes());
 });
 
 // ---- Pool ----
