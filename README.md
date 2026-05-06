@@ -339,8 +339,8 @@ Default max rotation per request: **5 key**. Kalau semua 5 key fail, router bali
 | `claude-sonnet-4`     | `CLAUDE_SONNET_4_20250514_V1_0`          |
 | `claude-3.7-sonnet`   | `CLAUDE_3_7_SONNET_20250219_V1_0`        |
 | `deepseek-v3.2-kiro`  | `DEEPSEEK_V3_2_EXP_V1_0`                 |
-| `minimax-m2.5`        | `MINIMAX_M2_FP8_V1_0`                    |
-| `minimax-m2.1`        | `MINIMAX_M2_5_V1_0`                      |
+| `minimax-m2.5`        | `MINIMAX_M2_5_V1_0`                      |
+| `minimax-m2.1`        | `MINIMAX_M2_FP8_V1_0`                    |
 | `glm-5`               | `GLM_5_FP8_V1_0`                         |
 | `qwen3-coder-next`    | `QWEN3_CODER_NEXT_V1_0`                  |
 
