@@ -407,8 +407,9 @@ http://user:pass@5.6.7.8:8080
    - Mode: `Unlucid + CodeBuddy + Kiro` / `CodeBuddy + Kiro` / `CodeBuddy only` / `Kiro only`
    - Headless: **No** (kalau pertama kali, biar lo bisa liat) / Yes (production)
    - Limit: 0 = pake semua akun
+   - **Parallel sessions**: 1 = sequential (1 browser at a time), 2-5 = N browser jalan barengan, masing-masing di proxy berbeda. Butuh `proxies.txt` minimal punya `≥ N` proxy. RAM consumption naik linear (~700 MB per Camoufox session).
    - Klik **Start**
-4. Live log streaming di panel bawah. Key CodeBuddy baru otomatis ke-append ke `codebuddy_keys.txt` → langsung muncul di pool. Credential Kiro otomatis di-validate (refresh token → access token) lalu di-append ke `kiro_credentials.json` → langsung muncul di Kiro Pool.
+4. Live log streaming di panel bawah. Kalau parallel, tiap baris di-prefix `[W1] / [W2] / ...` biar lo tau worker mana yang lagi log apa. Key CodeBuddy baru otomatis ke-append ke `codebuddy_keys.txt` → langsung muncul di pool. Credential Kiro otomatis di-validate (refresh token → access token) lalu di-append ke `kiro_credentials.json` → langsung muncul di Kiro Pool.
 
 **Lewat CLI (mode lama, Unlucid + CodeBuddy):**
 ```bash

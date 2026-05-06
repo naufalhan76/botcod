@@ -288,9 +288,14 @@ router.delete('/proxies/:idx', (req, res) => {
 // ---- Jobs (signup runner) ----
 router.get('/jobs', (req, res) => res.json({ jobs: listJobs() }));
 router.post('/jobs', (req, res) => {
-    const { mode, headless = true, limit = 0 } = req.body || {};
+    const { mode, headless = true, limit = 0, concurrency = 1 } = req.body || {};
     try {
-        const job = createJob({ mode: parseInt(mode), headless: !!headless, limit: parseInt(limit) || 0 });
+        const job = createJob({
+            mode: parseInt(mode),
+            headless: !!headless,
+            limit: parseInt(limit) || 0,
+            concurrency: parseInt(concurrency) || 1
+        });
         res.json(job.summary());
     } catch (e) {
         res.status(400).json({ error: e.message });

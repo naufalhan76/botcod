@@ -14,12 +14,13 @@ const VALID_MODES = new Set([1, 2, 3, 4, 5, 6, 7]);
 const _jobs = new Map(); // id -> Job
 
 class Job {
-    constructor({ accounts, proxies, mode, headless, limit }) {
+    constructor({ accounts, proxies, mode, headless, limit, concurrency }) {
         this.id = randomUUID();
         this.startedAt = Date.now();
         this.finishedAt = null;
         this.mode = mode;
         this.headless = headless;
+        this.concurrency = concurrency;
         this.totalRequested = accounts.length;
         this.accounts = limit && limit > 0 ? accounts.slice(0, limit) : accounts;
         this.proxies = proxies;
@@ -40,6 +41,7 @@ class Job {
             proxies: this.proxies,
             mode: this.mode,
             headless: this.headless,
+            concurrency: this.concurrency,
             keysOutputFile,
             onKiroCred: async (cred) => {
                 try {
@@ -115,6 +117,7 @@ class Job {
             finishedAt: this.finishedAt,
             mode: this.mode,
             headless: this.headless,
+            concurrency: this.concurrency,
             status: this.status,
             total: this.accounts.length,
             processed: this.results.length,
@@ -127,10 +130,12 @@ class Job {
     }
 }
 
-export function createJob({ mode, headless = true, limit = 0, accountsList = null, proxiesList = null }) {
+export function createJob({ mode, headless = true, limit = 0, concurrency = 1, accountsList = null, proxiesList = null }) {
     if (!VALID_MODES.has(mode)) {
         throw new Error('mode must be one of: 1=Unlucid, 2=CodeBuddy, 4=Kiro, or any combination (3,5,6,7)');
     }
+    concurrency = Math.max(1, Math.floor(Number(concurrency) || 1));
+    if (concurrency > 8) throw new Error('concurrency capped at 8 to keep VM/browser memory sane.');
 
     const cfg = getConfig();
     const accounts = accountsList ?? loadLines(cfg.ACCOUNTS_FILE);
@@ -138,8 +143,11 @@ export function createJob({ mode, headless = true, limit = 0, accountsList = nul
 
     if (accounts.length === 0) throw new Error('No accounts in accounts.txt');
     if (proxies.length === 0) throw new Error('No proxies in proxies.txt');
+    if (proxies.length < concurrency) {
+        throw new Error(`concurrency=${concurrency} requires at least ${concurrency} proxies (have ${proxies.length}).`);
+    }
 
-    const job = new Job({ accounts, proxies, mode, headless, limit });
+    const job = new Job({ accounts, proxies, mode, headless, limit, concurrency });
     _jobs.set(job.id, job);
     job.start();
     return job;
