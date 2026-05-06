@@ -125,7 +125,10 @@ export function addInbox({ label, host, port, secure, user, pass }) {
         pass,
         lastTestedAt: 0,
         lastTestResult: null,
-        lastUid: 0
+        // null = never bootstrapped. After the first successful poll this becomes
+        // a number (possibly 0 if the inbox was empty at bootstrap time). Using
+        // `null` instead of `0` is what lets us distinguish those two states.
+        lastUid: null
     };
     _store.inboxes.push(inbox);
     saveTempmailStore();
@@ -381,7 +384,10 @@ async function pollInbox(inbox) {
             const minUid = (inbox.lastUid || 0) + 1;
             // First-time bootstrap: don't fetch the entire inbox history.
             // Just record the current latest UID and pick up new mail going forward.
-            if (!inbox.lastUid) {
+            // `lastUid == null` matches both null (fresh inbox) and undefined
+            // (inbox loaded from older tempmail.json), but NOT 0 (which is a
+            // legit "empty inbox at bootstrap time" state and must NOT re-bootstrap).
+            if (inbox.lastUid == null) {
                 const status = await client.status('INBOX', { messages: true, uidNext: true });
                 inbox.lastUid = Math.max(0, (status.uidNext || 1) - 1);
                 saveTempmailStore();
