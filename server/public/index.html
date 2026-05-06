@@ -20,6 +20,7 @@
         <button class="tab" data-tab="accounts" role="tab">Accounts</button>
         <button class="tab" data-tab="proxies" role="tab">Proxies</button>
         <button class="tab" data-tab="run" role="tab">Run Bot</button>
+        <button class="tab" data-tab="tempmail" role="tab">Temp Mail</button>
         <button class="tab" data-tab="settings" role="tab">Settings</button>
     </nav>
 </header>
@@ -212,6 +213,160 @@
         </div>
     </section>
 
+    <!-- TEMP MAIL -->
+    <section class="panel hidden" data-panel="tempmail">
+        <div class="panel-head">
+            <h2>Temp Mail</h2>
+            <div class="panel-actions">
+                <button id="tm-poll" class="btn">Poll now</button>
+            </div>
+        </div>
+        <p class="muted">
+            Cloudflare Email Routing forwards <code>*@yourdomain.com</code> to a Gmail account; sambungin polls
+            that Gmail over IMAP every 10s and routes mail to the matching temp address.
+            All state (inboxes, domains, addresses, message cache) persists in <code>server/tempmail.json</code>
+            so a restart never wipes your config.
+        </p>
+
+        <!-- Setup steps (always visible — collapsed when configured) -->
+        <details class="card" id="tm-setup-card" open>
+            <summary><h3>Setup guide</h3></summary>
+
+            <ol class="setup-steps">
+                <li>
+                    <strong>Cloudflare Email Routing</strong> (per domain):
+                    <ol>
+                        <li>Open the domain on Cloudflare → <em>Email</em> → <em>Email Routing</em> → <em>Get started</em>.</li>
+                        <li>Cloudflare auto-adds the required MX + SPF records — accept them.</li>
+                        <li>Add a <em>destination address</em> (the Gmail you want everything to land in) and click the verification link Cloudflare emails to it.</li>
+                        <li>Open <em>Routing rules</em> → enable <strong>Catch-all address</strong> → action <em>Send to an email</em> → pick that destination Gmail. Save.</li>
+                    </ol>
+                </li>
+                <li>
+                    <strong>Gmail App Password</strong> (per Gmail account, only once):
+                    <ol>
+                        <li>Enable 2-Step Verification on the Gmail account.</li>
+                        <li>Go to <a href="https://myaccount.google.com/apppasswords" target="_blank" rel="noreferrer noopener">myaccount.google.com/apppasswords</a>, create an app password named e.g. <code>sambungin</code>.</li>
+                        <li>Copy the 16-character string (no spaces). Paste it as <em>App password</em> below.</li>
+                    </ol>
+                </li>
+                <li>
+                    <strong>Add the Gmail inbox below</strong>, then <strong>add the domain</strong> and link it to that inbox.
+                    Once both are saved, generate temp addresses with the form at the bottom and start polling.
+                </li>
+            </ol>
+        </details>
+
+        <!-- Inboxes -->
+        <div class="card">
+            <div class="card-head"><h3>Gmail inboxes (IMAP destinations)</h3></div>
+            <p class="muted">Each row is a Gmail account that catches mail forwarded by Cloudflare. One inbox can serve many domains.</p>
+            <div class="form-grid">
+                <label>Label
+                    <input id="tm-inbox-label" placeholder="e.g. catchall main" />
+                </label>
+                <label>Gmail address
+                    <input id="tm-inbox-user" placeholder="you@gmail.com" />
+                </label>
+                <label>App password
+                    <input id="tm-inbox-pass" type="password" placeholder="16 chars, no spaces" />
+                </label>
+                <label>IMAP host
+                    <input id="tm-inbox-host" value="imap.gmail.com" />
+                </label>
+                <label>Port
+                    <input id="tm-inbox-port" type="number" value="993" />
+                </label>
+                <div>
+                    <button id="tm-inbox-test" class="btn">Test connection</button>
+                    <button id="tm-inbox-add" class="btn primary">Save inbox</button>
+                    <span id="tm-inbox-status" class="muted"></span>
+                </div>
+            </div>
+            <div class="table-wrap">
+                <table>
+                    <thead>
+                        <tr><th>Label</th><th>Gmail</th><th>Host</th><th>Last poll</th><th>Last UID</th><th></th></tr>
+                    </thead>
+                    <tbody id="tm-inbox-tbody"></tbody>
+                </table>
+            </div>
+        </div>
+
+        <!-- Domains -->
+        <div class="card">
+            <div class="card-head"><h3>Domains</h3></div>
+            <p class="muted">Each domain you own on Cloudflare with Email Routing enabled. Multiple domains can share one Gmail inbox.</p>
+            <div class="form-grid">
+                <label>Domain
+                    <input id="tm-domain-name" placeholder="example.com" />
+                </label>
+                <label>Routes to inbox
+                    <select id="tm-domain-inbox"></select>
+                </label>
+                <div>
+                    <button id="tm-domain-add" class="btn primary">Add domain</button>
+                </div>
+            </div>
+            <div class="table-wrap">
+                <table>
+                    <thead>
+                        <tr><th>Domain</th><th>Routed to</th><th></th></tr>
+                    </thead>
+                    <tbody id="tm-domain-tbody"></tbody>
+                </table>
+            </div>
+        </div>
+
+        <!-- Addresses -->
+        <div class="card">
+            <div class="card-head"><h3>Temp addresses</h3></div>
+            <p class="muted">Random local-part on the chosen domain. Each one is a single-use mailbox the bot (or you) plug into a signup form.</p>
+            <div class="form-grid">
+                <label>Domain
+                    <select id="tm-address-domain"></select>
+                </label>
+                <label>Prefix (optional)
+                    <input id="tm-address-prefix" placeholder="e.g. openai" />
+                </label>
+                <label>Label (optional)
+                    <input id="tm-address-label" placeholder="e.g. ChatGPT signup #1" />
+                </label>
+                <div>
+                    <button id="tm-address-gen" class="btn primary">Generate</button>
+                </div>
+            </div>
+            <div class="table-wrap">
+                <table>
+                    <thead>
+                        <tr><th>Address</th><th>Label</th><th>Created</th><th>Last received</th><th>Msgs</th><th></th></tr>
+                    </thead>
+                    <tbody id="tm-address-tbody"></tbody>
+                </table>
+            </div>
+        </div>
+
+        <!-- Inbox viewer -->
+        <div class="card hidden" id="tm-viewer">
+            <div class="card-head">
+                <h3>Inbox: <code id="tm-viewer-addr"></code></h3>
+                <div class="panel-actions">
+                    <button id="tm-viewer-extract" class="btn">Extract code/link</button>
+                    <button id="tm-viewer-close" class="btn">Close</button>
+                </div>
+            </div>
+            <pre id="tm-viewer-extract-out" class="output hidden"></pre>
+            <div class="table-wrap">
+                <table>
+                    <thead>
+                        <tr><th>Received</th><th>From</th><th>Subject</th><th>Snippet</th></tr>
+                    </thead>
+                    <tbody id="tm-viewer-tbody"></tbody>
+                </table>
+            </div>
+        </div>
+    </section>
+
     <!-- SETTINGS -->
     <section class="panel hidden" data-panel="settings">
         <h2>Settings</h2>
@@ -232,6 +387,26 @@
                 <div>
                     <button id="set-save" class="btn primary">Save</button>
                 </div>
+            </div>
+        </div>
+        <div class="card">
+            <div class="card-head">
+                <h3>Per-model capability overrides</h3>
+                <span class="muted">JSON object keyed by model name. Each entry can set <code>variants</code>, <code>limit</code>, <code>modalities</code>, <code>reasoning</code>, <code>thinkingStyle</code>. Empty fields fall back to built-in defaults. Saved values are merged into the OpenCode snippet on the Overview tab.</span>
+            </div>
+            <textarea id="set-model-caps" class="snippet" style="width:100%;min-height:280px;font-family:monospace;" placeholder='{
+  "claude-opus-4.6": {
+    "variants": {
+      "max":  { "reasoningEffort": "max",  "textVerbosity": "low", "reasoningSummary": "auto" },
+      "high": { "reasoningEffort": "high", "textVerbosity": "low", "reasoningSummary": "auto" }
+    },
+    "limit": { "context": 1000000, "output": 128000 }
+  }
+}'></textarea>
+            <div style="margin-top:8px;display:flex;gap:8px;align-items:center;">
+                <button id="set-caps-save" class="btn primary">Save overrides</button>
+                <button id="set-caps-reset" class="btn">Clear all</button>
+                <span id="set-caps-msg" class="muted"></span>
             </div>
         </div>
         <div class="card">

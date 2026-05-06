@@ -9,6 +9,7 @@ import path from 'path';
 import { fileURLToPath } from 'url';
 import { getConfig, loadConfig } from './lib/config.js';
 import { startWatcher } from './lib/keyPool.js';
+import { startTempmailPoller } from './lib/tempmail.js';
 import openaiRoutes from './routes/openai.js';
 import apiRoutes from './routes/api.js';
 
@@ -48,6 +49,7 @@ app.use((err, req, res, next) => {
 });
 
 startWatcher();
+startTempmailPoller();
 
 const server = app.listen(cfg.PORT, cfg.HOST, () => {
     console.log(`\nsambungin server listening on http://${cfg.HOST}:${cfg.PORT}`);

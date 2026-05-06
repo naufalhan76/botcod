@@ -9,6 +9,13 @@
  * Translation is therefore mostly pass-through with light cleanup.
  */
 import { randomUUID } from 'crypto';
+import { getEffectiveModelCaps } from './config.js';
+
+// OpenAI / Anthropic-shaped reasoning hints. CodeBuddy ignores unknown fields
+// for most models, but for explicitly non-reasoning models (e.g. deepseek-v3,
+// auto-chat) we proactively drop these so an over-eager upstream parser can't
+// reject the call.
+const REASONING_FIELDS = ['reasoning_effort', 'reasoning_summary', 'text_verbosity', 'thinking', 'extended_thinking'];
 
 export function buildUpstreamHeaders(bearerToken) {
     return {
@@ -40,6 +47,14 @@ export function buildUpstreamHeaders(bearerToken) {
 export function translateRequest(openaiBody) {
     const out = { ...openaiBody };
     out.stream = true; // upstream requires stream
+
+    // For models the caps table marks as non-reasoning, strip reasoning hints
+    // before forwarding. Reasoning models keep them and pass through to the
+    // upstream as-is (CodeBuddy honours them for o3/o4-mini/gpt-5/claude-opus).
+    const caps = getEffectiveModelCaps()[out.model];
+    if (caps && caps.reasoning === false) {
+        for (const f of REASONING_FIELDS) delete out[f];
+    }
 
     // CodeBuddy returns "Parse message failed" if the body is just a single
     // user message. Most real clients (OpenCode, OpenAI SDK) include one

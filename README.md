@@ -29,8 +29,9 @@ curl       ─┘   │                                       │
 8. [Cara kerja rotation + multi-provider](#cara-kerja-rotation--multi-provider)
 9. [Daftar model yang bisa dipake](#daftar-model-yang-bisa-dipake)
 10. [Bot signup (Unlucid + CodeBuddy)](#bot-signup-unlucid--codebuddy)
-11. [Konfigurasi lanjutan (env var)](#konfigurasi-lanjutan-env-var)
-12. [Troubleshooting](#troubleshooting)
+11. [Temp Mail (catchall via Cloudflare → Gmail IMAP)](#temp-mail-catchall-via-cloudflare--gmail-imap)
+12. [Konfigurasi lanjutan (env var)](#konfigurasi-lanjutan-env-var)
+13. [Troubleshooting](#troubleshooting)
 
 ---
 
@@ -215,31 +216,45 @@ touch ~/.config/opencode/opencode.jsonc
   "provider": {
     "sambungin": {
       "npm": "@ai-sdk/openai-compatible",
-      "name": "Sambungin (CodeBuddy)",
+      "name": "Sambungin (CodeBuddy + Kiro)",
       "options": {
         "baseURL": "http://127.0.0.1:4141/v1",
-        "apiKey": "not-required-but-required-by-sdk"
+        "apiKey": "not-required-router-doesnt-check"
       },
       "models": {
-        "claude-opus-4.6":  { "name": "Claude Opus 4.6"  },
-        "gpt-5.5":          { "name": "GPT-5.5"          },
-        "gpt-5":            { "name": "GPT-5"            },
-        "gpt-5-codex":      { "name": "GPT-5 Codex"      },
-        "o3":               { "name": "o3"               },
-        "o4-mini":          { "name": "o4-mini"          },
-        "gemini-3.1-pro":   { "name": "Gemini 3.1 Pro"   },
-        "gemini-2.5-pro":   { "name": "Gemini 2.5 Pro"   },
-        "gemini-2.5-flash": { "name": "Gemini 2.5 Flash" },
-        "glm-4.6":          { "name": "GLM 4.6"          },
-        "deepseek-v3.2":    { "name": "DeepSeek v3.2"    },
-        "auto-chat":        { "name": "Auto (cheapest)"  }
+        "claude-opus-4.6": {
+          "name": "claude-opus-4.6",
+          "variants": {
+            "max":    { "reasoningEffort": "max",    "textVerbosity": "low",    "reasoningSummary": "auto" },
+            "high":   { "reasoningEffort": "high",   "textVerbosity": "low",    "reasoningSummary": "auto" },
+            "medium": { "reasoningEffort": "medium", "textVerbosity": "medium", "reasoningSummary": "auto" },
+            "low":    { "reasoningEffort": "low",    "textVerbosity": "medium", "reasoningSummary": "auto" }
+          },
+          "limit":      { "context": 1000000, "output": 128000 },
+          "modalities": { "input": ["text", "image", "pdf"], "output": ["text"] }
+        },
+        "claude-sonnet-4.5": {
+          "name": "claude-sonnet-4.5",
+          "variants": {
+            "max":  { "reasoningEffort": "max",  "textVerbosity": "low" },
+            "high": { "reasoningEffort": "high", "textVerbosity": "low" }
+          },
+          "limit":      { "context": 200000, "output": 64000 },
+          "modalities": { "input": ["text", "image", "pdf"], "output": ["text"] }
+        }
+        // ... 22 more models — see the full snippet on dashboard tab Overview
       }
     }
   }
 }
 ```
 
-> Snippet ini juga di-generate otomatis di dashboard tab **Overview**, jadi kalau lo edit list model di Settings, copy snippet baru dari sana.
+> Snippet di atas cuma cuplikan. Yang lengkap (24 model: 16 dari CodeBuddy + 8 dari Kiro, dengan `variants` / `limit` / `modalities` per model) di-generate otomatis di dashboard tab **Overview** — copy dari sana. Kalau lo butuh ngubah angkanya (misal context limit beda buat akun lo), pake form **Per-model capability overrides** di tab **Settings** — overrides di-merge ke snippet otomatis.
+
+**Variants** (`max`, `high`, `medium`, `low`) di OpenCode bakal di-forward ke router sebagai `reasoning_effort` / `text_verbosity` / `reasoning_summary` body fields. Sambungin treatment:
+- **Reasoning model di CodeBuddy** (claude-opus-4.6, gpt-5.x, o3, o4-mini, gemini-3.x/2.5, glm-4.6) → field di-passthrough ke upstream as-is.
+- **Reasoning model di Kiro** (claude-sonnet-4.5/4, claude-3.7-sonnet, glm-5) → CodeWhisperer ga support `reasoning_effort` natively, jadi sambungin nge-prepend instruksi system prompt yang minta model wrap reasoning di `<thinking>...</thinking>`. Sambungin parse balik ke `reasoning_content` di response stream — OpenCode bakal render di reasoning panel.
+- **Non-reasoning model** (deepseek, minimax, qwen, auto-chat) → reasoning fields di-strip sebelum forward biar upstream parser ga komplain.
 
 ### Step 3. Pilih model di OpenCode
 
@@ -422,6 +437,50 @@ npm start
 4. Redirect kembali ke Unlucid
 
 Tiap service auto-retry 3x kalau timeout / fail.
+
+---
+
+## Temp Mail (catchall via Cloudflare → Gmail IMAP)
+
+Tab **Temp Mail** di dashboard ngehandle alamat email sekali pakai untuk signup-an (target awal: ChatGPT Pro). Arsitekturnya simple:
+
+```
+xxxx@domainlo.com → MX (Cloudflare) → Email Routing catch-all
+                                              ↓
+                                      gmail-tujuan@gmail.com
+                                              ↓ IMAP polling tiap 10s
+                                          sambungin
+```
+
+**State persistent di `server/tempmail.json`** (gitignored): inbox list, domain list, address pool, cache message + UID checkpoint per inbox. Restart server ga ngewipe apa-apa.
+
+### Setup (sekali aja per domain + per Gmail)
+
+1. **Cloudflare Email Routing** untuk tiap domain:
+   - Domain → Email → Email Routing → Get started
+   - Cloudflare auto-add MX + SPF, accept aja
+   - Tambah destination address (Gmail tujuan), klik link verifikasi yang Cloudflare kirim
+   - Routing rules → enable Catch-all → action "Send to an email" → pilih Gmail tujuan
+2. **Gmail App Password** untuk Gmail tujuan:
+   - Aktifin 2FA di Google account
+   - Buka https://myaccount.google.com/apppasswords, generate password (16 karakter)
+3. Di dashboard tab **Temp Mail**:
+   - Form **Gmail inbox** → paste Gmail address + app password → klik **Test connection** (validasi IMAP) → **Save inbox**
+   - Form **Domain** → ketik domain lo → pilih Gmail inbox tujuan → **Add domain**
+   - Form **Generate address** → pilih domain → optional prefix/label → **Generate** → dapet `prefix.xxxxxxxx@domainlo.com`
+
+### API endpoints (buat integrasi bot)
+
+| Method | Path | Use case |
+| --- | --- | --- |
+| GET | `/api/tempmail/overview` | Snapshot semua state |
+| POST | `/api/tempmail/addresses` | Generate address baru, body `{ domain, prefix?, label? }` |
+| GET | `/api/tempmail/addresses/:address/messages` | List mail untuk address itu |
+| GET | `/api/tempmail/addresses/:address/extract` | Auto-extract OTP 6 digit / kode `code: XXXX` / magic link URL pertama |
+| POST | `/api/tempmail/poll` | Trigger poll manual (poll otomatis jalan tiap 10s) |
+| DELETE | `/api/tempmail/addresses/:address` | Revoke address + drop cached messages |
+
+Bot autocreate ChatGPT (Phase 2) bakal pake `POST /addresses` → submit address ke OpenAI signup form → loop `GET /addresses/:addr/extract` sampai dapet OTP.
 
 ---
 
