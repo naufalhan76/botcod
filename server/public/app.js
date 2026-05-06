@@ -327,11 +327,12 @@ async function loadJobs() {
     const { jobs } = await api('GET', '/api/jobs');
     const tbody = $('#jobs-tbody');
     tbody.innerHTML = jobs.length === 0
-        ? `<tr><td colspan="6" class="muted" style="text-align:center;padding:20px;">No jobs yet.</td></tr>`
+        ? `<tr><td colspan="7" class="muted" style="text-align:center;padding:20px;">No jobs yet.</td></tr>`
         : jobs.map(j => `
             <tr>
                 <td>${fmtTime(j.startedAt)}</td>
                 <td>${modeName(j.mode)}</td>
+                <td>${j.concurrency || 1}×</td>
                 <td><span class="badge ${j.status}">${j.status}</span></td>
                 <td>${j.processed}/${j.total} (ok ${j.success} · fail ${j.failed})</td>
                 <td>${j.keysObtained}</td>
@@ -355,9 +356,10 @@ $('#run-start').addEventListener('click', async () => {
     const mode = parseInt($('#run-mode').value);
     const headless = $('#run-headless').value === 'true';
     const limit = parseInt($('#run-limit').value) || 0;
+    const concurrency = parseInt($('#run-concurrency').value) || 1;
     try {
-        const job = await api('POST', '/api/jobs', { mode, headless, limit });
-        toast(`Job started: ${job.id.slice(0, 8)}`);
+        const job = await api('POST', '/api/jobs', { mode, headless, limit, concurrency });
+        toast(`Job started: ${job.id.slice(0, 8)} (${concurrency}× parallel)`);
         attachJobStream(job.id);
         $('#run-abort').disabled = false;
         $('#run-start').disabled = true;
