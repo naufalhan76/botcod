@@ -61,9 +61,12 @@ function buildKiroRequest(openaiBody) {
         // CodeBuddy-equivalent fallback: append a stub user message.
         turns.push({ role: 'user', content: '(continue)' });
     }
+    // Kiro starts a fresh conversationId per request, so any system prompt
+    // must be re-injected on every turn — otherwise multi-turn requests
+    // silently lose the system instructions after the first call.
     const currentText = (() => {
         const last = turns[turns.length - 1];
-        return systemText && turns.filter(t => t.role === 'user').length === 1
+        return systemText
             ? `${systemText}\n\n${last.content}`
             : last.content;
     })();
@@ -319,8 +322,17 @@ function classifyKiroError(status, bodyText) {
     if (status === 402) return 'quota';
     if (bodyText && typeof bodyText === 'string') {
         const s = bodyText.toLowerCase();
-        if (s.includes('throttling') || s.includes('rate')) return 'rate_limit';
-        if (s.includes('quota') || s.includes('limit')) return 'quota';
+        // Use precise phrases — bare 'rate' matches 'generate' (literally in the
+        // upstream action `generateAssistantResponse`) and bare 'limit' matches
+        // benign errors like 'context length limit exceeded', causing healthy
+        // creds to be cooldown'd by a single bad request.
+        if (
+            s.includes('throttling') ||
+            s.includes('rate limit') ||
+            s.includes('rate exceeded') ||
+            s.includes('too many requests')
+        ) return 'rate_limit';
+        if (s.includes('quota') || s.includes('insufficient')) return 'quota';
         if ((s.includes('expired') || s.includes('invalid')) && s.includes('token')) return 'auth';
     }
     return null;
