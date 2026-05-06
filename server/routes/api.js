@@ -26,7 +26,7 @@
  *   POST   /api/test-chat          { model, prompt }
  */
 import { Router } from 'express';
-import { getConfig, updateSettings, providerForModel } from '../lib/config.js';
+import { getConfig, updateSettings, providerForModel, getEffectiveModelCaps } from '../lib/config.js';
 import {
     listPool, summary, reloadKeys, setStatus, getEntryByMaskedOrEmail
 } from '../lib/keyPool.js';
@@ -63,6 +63,8 @@ router.get('/overview', (req, res) => {
             COOLDOWN_MS: cfg.COOLDOWN_MS,
             EXPOSED_MODELS: cfg.EXPOSED_MODELS,
             MODEL_PROVIDERS: cfg.MODEL_PROVIDERS,
+            MODEL_CAPS: getEffectiveModelCaps(),
+            MODEL_CAPS_OVERRIDES: cfg.MODEL_CAPS_OVERRIDES || {},
             PORT: cfg.PORT
         }
     });
@@ -324,14 +326,22 @@ router.get('/settings', (req, res) => {
         EXPOSED_MODELS: cfg.EXPOSED_MODELS,
         UPSTREAM_BASE: cfg.UPSTREAM_BASE,
         MAX_ROTATIONS_PER_REQUEST: cfg.MAX_ROTATIONS_PER_REQUEST,
+        MODEL_CAPS: getEffectiveModelCaps(),
+        MODEL_CAPS_OVERRIDES: cfg.MODEL_CAPS_OVERRIDES || {},
         PORT: cfg.PORT
     });
 });
 router.put('/settings', (req, res) => {
-    const allowed = ['COOLDOWN_MS', 'EXPOSED_MODELS', 'MAX_ROTATIONS_PER_REQUEST'];
+    const allowed = ['COOLDOWN_MS', 'EXPOSED_MODELS', 'MAX_ROTATIONS_PER_REQUEST', 'MODEL_CAPS_OVERRIDES'];
     const patch = {};
     for (const k of allowed) {
         if (k in (req.body || {})) patch[k] = req.body[k];
+    }
+    if ('MODEL_CAPS_OVERRIDES' in patch) {
+        const v = patch.MODEL_CAPS_OVERRIDES;
+        if (v === null || typeof v !== 'object' || Array.isArray(v)) {
+            return res.status(400).json({ error: 'MODEL_CAPS_OVERRIDES must be a JSON object keyed by model name.' });
+        }
     }
     updateSettings(patch);
     res.json(getConfig());

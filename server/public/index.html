@@ -390,6 +390,26 @@
             </div>
         </div>
         <div class="card">
+            <div class="card-head">
+                <h3>Per-model capability overrides</h3>
+                <span class="muted">JSON object keyed by model name. Each entry can set <code>variants</code>, <code>limit</code>, <code>modalities</code>, <code>reasoning</code>, <code>thinkingStyle</code>. Empty fields fall back to built-in defaults. Saved values are merged into the OpenCode snippet on the Overview tab.</span>
+            </div>
+            <textarea id="set-model-caps" class="snippet" style="width:100%;min-height:280px;font-family:monospace;" placeholder='{
+  "claude-opus-4.6": {
+    "variants": {
+      "max":  { "reasoningEffort": "max",  "textVerbosity": "low", "reasoningSummary": "auto" },
+      "high": { "reasoningEffort": "high", "textVerbosity": "low", "reasoningSummary": "auto" }
+    },
+    "limit": { "context": 1000000, "output": 128000 }
+  }
+}'></textarea>
+            <div style="margin-top:8px;display:flex;gap:8px;align-items:center;">
+                <button id="set-caps-save" class="btn primary">Save overrides</button>
+                <button id="set-caps-reset" class="btn">Clear all</button>
+                <span id="set-caps-msg" class="muted"></span>
+            </div>
+        </div>
+        <div class="card">
             <div class="card-head"><h3>Server info</h3></div>
             <pre id="set-info" class="snippet"></pre>
         </div>

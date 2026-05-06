@@ -4,6 +4,7 @@
 import fs from 'fs';
 import path from 'path';
 import { fileURLToPath } from 'url';
+import { buildEffectiveCaps } from './modelCaps.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const ROOT = path.resolve(__dirname, '..', '..');
@@ -58,7 +59,11 @@ const DEFAULTS = {
     MODEL_PROVIDERS: {
         ...Object.fromEntries(CODEBUDDY_MODELS.map(m => [m, 'codebuddy'])),
         ...Object.fromEntries(KIRO_MODELS.map(m => [m, 'kiro']))
-    }
+    },
+    // Persisted user overrides for per-model capabilities (variants, limit,
+    // modalities). Empty by default; the Settings tab merges these on top of
+    // DEFAULT_MODEL_CAPS via buildEffectiveCaps().
+    MODEL_CAPS_OVERRIDES: {}
 };
 
 export { CODEBUDDY_MODELS, KIRO_MODELS };
@@ -109,6 +114,14 @@ export function loadConfig() {
 
 export function getConfig() {
     return _config;
+}
+
+/**
+ * Effective per-model capability table (defaults + user overrides). Used by
+ * the dashboard snippet generator and the Kiro reasoning translator.
+ */
+export function getEffectiveModelCaps() {
+    return buildEffectiveCaps(_config.MODEL_CAPS_OVERRIDES || {});
 }
 
 export function updateSettings(patch) {

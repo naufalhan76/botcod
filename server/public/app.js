@@ -90,6 +90,17 @@ async function loadOverview() {
         }
 
         const baseUrl = `http://${location.hostname}:${o.config.PORT}/v1`;
+        const caps = o.config.MODEL_CAPS || {};
+        const modelEntries = _models.map(m => {
+            const c = caps[m];
+            const entry = { name: m };
+            if (c) {
+                if (c.variants) entry.variants = c.variants;
+                if (c.limit)    entry.limit    = c.limit;
+                if (c.modalities) entry.modalities = c.modalities;
+            }
+            return [m, entry];
+        });
         const snippet = JSON.stringify({
             "$schema": "https://opencode.ai/config.json",
             provider: {
@@ -100,7 +111,7 @@ async function loadOverview() {
                         baseURL: baseUrl,
                         apiKey: "not-required-router-doesnt-check"
                     },
-                    models: Object.fromEntries(_models.map(m => [m, { name: m }]))
+                    models: Object.fromEntries(modelEntries)
                 }
             }
         }, null, 2);
@@ -409,6 +420,11 @@ async function loadSettings() {
     $('#set-max-rotations').value = s.MAX_ROTATIONS_PER_REQUEST;
     $('#set-models').value = (s.EXPOSED_MODELS || []).join(', ');
     $('#set-info').textContent = JSON.stringify(s, null, 2);
+    const overrides = s.MODEL_CAPS_OVERRIDES || {};
+    $('#set-model-caps').value = Object.keys(overrides).length
+        ? JSON.stringify(overrides, null, 2)
+        : '';
+    $('#set-caps-msg').textContent = '';
 }
 $('#set-save').addEventListener('click', async () => {
     const patch = {
@@ -419,6 +435,40 @@ $('#set-save').addEventListener('click', async () => {
     await api('PUT', '/api/settings', patch);
     toast('Settings saved');
     loadSettings();
+});
+
+$('#set-caps-save').addEventListener('click', async () => {
+    const raw = $('#set-model-caps').value.trim();
+    let parsed = {};
+    if (raw) {
+        try {
+            parsed = JSON.parse(raw);
+        } catch (e) {
+            $('#set-caps-msg').textContent = `Invalid JSON: ${e.message}`;
+            return;
+        }
+        if (parsed === null || typeof parsed !== 'object' || Array.isArray(parsed)) {
+            $('#set-caps-msg').textContent = 'Top-level value must be a JSON object keyed by model name.';
+            return;
+        }
+    }
+    try {
+        await api('PUT', '/api/settings', { MODEL_CAPS_OVERRIDES: parsed });
+        $('#set-caps-msg').textContent = `Saved (${Object.keys(parsed).length} override${Object.keys(parsed).length === 1 ? '' : 's'}).`;
+        toast('Model caps saved');
+        await loadOverview();
+    } catch (e) {
+        $('#set-caps-msg').textContent = e.message;
+    }
+});
+
+$('#set-caps-reset').addEventListener('click', async () => {
+    if (!confirm('Clear all per-model overrides? Built-in caps will be used for the snippet.')) return;
+    await api('PUT', '/api/settings', { MODEL_CAPS_OVERRIDES: {} });
+    $('#set-model-caps').value = '';
+    $('#set-caps-msg').textContent = 'Cleared.';
+    toast('Overrides cleared');
+    await loadOverview();
 });
 
 // ---- helpers ----

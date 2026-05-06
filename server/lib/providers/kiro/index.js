@@ -7,7 +7,7 @@
  * Wire format: AWS EventStream binary (parsed locally → re-emitted as OpenAI SSE).
  */
 import { randomUUID } from 'crypto';
-import { getConfig } from '../../config.js';
+import { getConfig, getEffectiveModelCaps } from '../../config.js';
 import { resolveKiroModelId } from './models.js';
 import { EventStreamParser } from './eventstream.js';
 import {
@@ -37,6 +37,36 @@ const KIRO_AMZ_USER_AGENT = 'aws-sdk-js/1.0.18 KiroIDE-0.2.13-66c23a8c5d15afabec
  * For an MVP we concatenate any system prompt into the first user message and
  * keep history short. Tool calls / multimodal content are passed through best-effort.
  */
+// CodeWhisperer doesn't accept Anthropic's `thinking` parameter natively.
+// To honour `reasoning_effort: high|max` (or `thinking: { type: 'enabled' }`)
+// from the OpenAI client, we prepend a system-prompt instruction asking the
+// model to wrap its reasoning in <thinking>...</thinking> tags. The streaming
+// translator (frameToOpenAIDelta) then unwraps those into `reasoning_content`
+// deltas so OpenCode renders them in its reasoning panel.
+const KIRO_THINKING_PROMPT =
+    'Before answering, work through the problem inside a <thinking>...</thinking> ' +
+    'block (multi-line OK). Place ALL chain-of-thought reasoning, planning, and ' +
+    'self-critique inside that block. After </thinking>, write the final user-facing ' +
+    'answer normally without any thinking tags.';
+
+/**
+ * Decide whether the incoming OpenAI request opts into Kiro's prompt-injected
+ * thinking mode. Honoured signals (any of):
+ *   - reasoning_effort: 'high' | 'max'
+ *   - thinking: { type: 'enabled' }
+ *   - extended_thinking: true
+ * Models without `thinkingStyle === 'kiro-prompt-injected'` are skipped (no-op).
+ */
+function shouldEnableKiroThinking(openaiBody) {
+    const caps = getEffectiveModelCaps()[openaiBody.model];
+    if (!caps || caps.thinkingStyle !== 'kiro-prompt-injected') return false;
+    const eff = String(openaiBody.reasoning_effort || '').toLowerCase();
+    if (eff === 'high' || eff === 'max') return true;
+    if (openaiBody.thinking && openaiBody.thinking.type === 'enabled') return true;
+    if (openaiBody.extended_thinking === true) return true;
+    return false;
+}
+
 function buildKiroRequest(openaiBody) {
     const friendlyModel = openaiBody.model;
     const modelId = resolveKiroModelId(friendlyModel);
@@ -48,7 +78,12 @@ function buildKiroRequest(openaiBody) {
     }));
 
     // Pull system messages and prefix the first user message.
-    const systemText = msgs.filter(m => m.role === 'system').map(m => m.content).join('\n').trim();
+    let systemText = msgs.filter(m => m.role === 'system').map(m => m.content).join('\n').trim();
+    if (shouldEnableKiroThinking(openaiBody)) {
+        systemText = systemText
+            ? `${KIRO_THINKING_PROMPT}\n\n${systemText}`
+            : KIRO_THINKING_PROMPT;
+    }
     const turns = msgs.filter(m => m.role !== 'system');
 
     if (turns.length === 0) {
@@ -124,12 +159,22 @@ function frameToOpenAIDelta(frame, ctx) {
     if (eventType === 'assistantResponseEvent') {
         const text = typeof payload.content === 'string' ? payload.content : '';
         if (!text) return null;
+        // Demux <thinking>...</thinking> blocks out of the assistant text and
+        // route them to `reasoning_content` deltas (OpenAI-compatible, what
+        // OpenCode renders in its reasoning panel). Anything outside the
+        // tags goes through as normal `content`. Tag fragments may be split
+        // across stream chunks, so we keep small running state on `ctx`.
+        const { reasoning, content } = demuxThinking(ctx, text);
+        if (!reasoning && !content) return null;
+        const delta = {};
+        if (content)   delta.content = content;
+        if (reasoning) delta.reasoning_content = reasoning;
         return {
             id: ctx.responseId,
             object: 'chat.completion.chunk',
             created: ctx.created,
             model: ctx.model,
-            choices: [{ index: 0, delta: { content: text }, finish_reason: null }]
+            choices: [{ index: 0, delta, finish_reason: null }]
         };
     }
 
@@ -277,7 +322,22 @@ async function streamFrames(upstreamBody, res, ctx) {
             if (chunk) res.write(`data: ${JSON.stringify(chunk)}\n\n`);
         }
     }
-    // emit final stop chunk
+    // Flush any held-back trailing chars from the thinking demux. We hold back
+    // up to 16 chars per chunk while looking for tag boundaries, so the very
+    // last fragment never gets emitted unless we drain it on EOF.
+    if (ctx._tBuf) {
+        const delta = ctx._inThink
+            ? { reasoning_content: ctx._tBuf }
+            : { content: ctx._tBuf };
+        ctx._tBuf = '';
+        res.write(`data: ${JSON.stringify({
+            id: ctx.responseId,
+            object: 'chat.completion.chunk',
+            created: ctx.created,
+            model: ctx.model,
+            choices: [{ index: 0, delta, finish_reason: null }]
+        })}\n\n`);
+    }
     const stopChunk = {
         id: ctx.responseId,
         object: 'chat.completion.chunk',
@@ -293,27 +353,73 @@ async function streamFrames(upstreamBody, res, ctx) {
 function aggregateNonStream(buf, ctx) {
     const parser = new EventStreamParser();
     parser.push(buf);
-    let content = '';
+    let raw = '';
     for (const frame of parser.drain()) {
         if (frame.headers[':event-type'] === 'assistantResponseEvent') {
             try {
                 const j = JSON.parse(frame.payload.toString('utf-8'));
-                if (typeof j.content === 'string') content += j.content;
+                if (typeof j.content === 'string') raw += j.content;
             } catch {}
         }
     }
+    // Split <thinking>...</thinking> off the final text once.
+    const thinkingRe = /<thinking>([\s\S]*?)<\/thinking>/g;
+    const reasoning = [...raw.matchAll(thinkingRe)].map(m => m[1]).join('\n').trim();
+    const content = raw.replace(thinkingRe, '').trim();
+    const message = { role: 'assistant', content };
+    if (reasoning) message.reasoning_content = reasoning;
     return {
         id: ctx.responseId,
         object: 'chat.completion',
         created: ctx.created,
         model: ctx.model,
-        choices: [{
-            index: 0,
-            message: { role: 'assistant', content },
-            finish_reason: 'stop'
-        }],
+        choices: [{ index: 0, message, finish_reason: 'stop' }],
         usage: null
     };
+}
+
+/**
+ * Streaming demux for prompt-injected thinking blocks.
+ *
+ * State on ctx (lazily inited): { _tBuf: string, _inThink: bool }.
+ * We accumulate up to 16 trailing chars in _tBuf so we can detect a tag
+ * boundary that spans two chunks (e.g. `</think` then `ing>`).
+ */
+function demuxThinking(ctx, chunk) {
+    if (ctx._tBuf == null) { ctx._tBuf = ''; ctx._inThink = false; }
+    let buf = ctx._tBuf + chunk;
+    let content = '';
+    let reasoning = '';
+    while (buf.length > 0) {
+        if (!ctx._inThink) {
+            const open = buf.indexOf('<thinking>');
+            if (open < 0) {
+                // Hold back trailing 16 chars in case a tag is straddling.
+                if (buf.length > 16) {
+                    content += buf.slice(0, buf.length - 16);
+                    buf = buf.slice(buf.length - 16);
+                }
+                break;
+            }
+            content += buf.slice(0, open);
+            buf = buf.slice(open + '<thinking>'.length);
+            ctx._inThink = true;
+        } else {
+            const close = buf.indexOf('</thinking>');
+            if (close < 0) {
+                if (buf.length > 16) {
+                    reasoning += buf.slice(0, buf.length - 16);
+                    buf = buf.slice(buf.length - 16);
+                }
+                break;
+            }
+            reasoning += buf.slice(0, close);
+            buf = buf.slice(close + '</thinking>'.length);
+            ctx._inThink = false;
+        }
+    }
+    ctx._tBuf = buf;
+    return { reasoning, content };
 }
 
 function classifyKiroError(status, bodyText) {
