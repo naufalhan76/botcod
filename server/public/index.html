@@ -1,0 +1,202 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>botcod · CodeBuddy Router</title>
+<link rel="stylesheet" href="/style.css" />
+</head>
+<body>
+<header class="topbar">
+    <div class="brand">
+        <span class="logo-dot"></span>
+        <span class="brand-name">botcod</span>
+        <span class="brand-sub">CodeBuddy Router + Bot Console</span>
+    </div>
+    <nav class="tabs" role="tablist">
+        <button class="tab active" data-tab="overview" role="tab">Overview</button>
+        <button class="tab" data-tab="pool" role="tab">Key Pool</button>
+        <button class="tab" data-tab="accounts" role="tab">Accounts</button>
+        <button class="tab" data-tab="proxies" role="tab">Proxies</button>
+        <button class="tab" data-tab="run" role="tab">Run Bot</button>
+        <button class="tab" data-tab="settings" role="tab">Settings</button>
+    </nav>
+</header>
+
+<main>
+    <!-- OVERVIEW -->
+    <section class="panel" data-panel="overview">
+        <h2>Overview</h2>
+        <div class="card-grid">
+            <div class="card stat"><div class="stat-label">Active keys</div><div class="stat-value" id="stat-active">–</div></div>
+            <div class="card stat"><div class="stat-label">Cooldown</div><div class="stat-value" id="stat-cooldown">–</div></div>
+            <div class="card stat"><div class="stat-label">Dead</div><div class="stat-value" id="stat-dead">–</div></div>
+            <div class="card stat"><div class="stat-label">Accounts</div><div class="stat-value" id="stat-accounts">–</div></div>
+            <div class="card stat"><div class="stat-label">Proxies</div><div class="stat-value" id="stat-proxies">–</div></div>
+            <div class="card stat"><div class="stat-label">Jobs running</div><div class="stat-value" id="stat-jobs-running">–</div></div>
+        </div>
+
+        <div class="card">
+            <div class="card-head"><h3>Quick test</h3></div>
+            <p class="muted">Fire a chat completion through the router using the next available key.</p>
+            <div class="form-row">
+                <select id="test-model"></select>
+                <input id="test-prompt" placeholder="Prompt (default: Reply with just OK)" />
+                <button id="test-send" class="btn primary">Send</button>
+            </div>
+            <pre id="test-output" class="output"></pre>
+        </div>
+
+        <div class="card">
+            <div class="card-head"><h3>OpenCode integration</h3></div>
+            <p class="muted">Add this to your OpenCode config (<code>~/.config/opencode/opencode.jsonc</code>):</p>
+            <pre class="snippet" id="opencode-snippet"></pre>
+        </div>
+    </section>
+
+    <!-- POOL -->
+    <section class="panel hidden" data-panel="pool">
+        <div class="panel-head">
+            <h2>Key Pool</h2>
+            <div class="panel-actions">
+                <button id="pool-reload" class="btn">Reload from file</button>
+            </div>
+        </div>
+        <p class="muted">Status auto-refreshes every 5s. Cooldown timer auto-promotes back to active.</p>
+        <div class="table-wrap">
+            <table>
+                <thead>
+                    <tr><th>Email</th><th>Key</th><th>Status</th><th>Last used</th><th>Cooldown ends</th><th>Usage</th><th>Errors</th><th>Actions</th></tr>
+                </thead>
+                <tbody id="pool-tbody"></tbody>
+            </table>
+        </div>
+    </section>
+
+    <!-- ACCOUNTS -->
+    <section class="panel hidden" data-panel="accounts">
+        <div class="panel-head">
+            <h2>Accounts (<code>accounts.txt</code>)</h2>
+        </div>
+        <p class="muted">Format <code>email:password</code>. One per line.</p>
+        <div class="card">
+            <textarea id="accounts-textarea" rows="10" placeholder="email1@example.com:password1&#10;email2@example.com:password2"></textarea>
+            <div class="form-row">
+                <button id="accounts-save" class="btn primary">Save (replace file)</button>
+                <button id="accounts-append" class="btn">Append to existing</button>
+                <button id="accounts-reload" class="btn">Reload</button>
+                <span class="muted" id="accounts-count"></span>
+            </div>
+        </div>
+        <div class="table-wrap">
+            <table>
+                <thead><tr><th>#</th><th>Email</th><th>Password set</th><th></th></tr></thead>
+                <tbody id="accounts-tbody"></tbody>
+            </table>
+        </div>
+    </section>
+
+    <!-- PROXIES -->
+    <section class="panel hidden" data-panel="proxies">
+        <div class="panel-head">
+            <h2>Proxies (<code>proxies.txt</code>)</h2>
+        </div>
+        <p class="muted">Format <code>http://user:pass@host:port</code>. One per line. Used round-robin.</p>
+        <div class="card">
+            <textarea id="proxies-textarea" rows="10" placeholder="http://user:pass@host:port&#10;http://user:pass@host:port"></textarea>
+            <div class="form-row">
+                <button id="proxies-save" class="btn primary">Save (replace file)</button>
+                <button id="proxies-append" class="btn">Append</button>
+                <button id="proxies-reload" class="btn">Reload</button>
+                <span class="muted" id="proxies-count"></span>
+            </div>
+        </div>
+        <div class="table-wrap">
+            <table>
+                <thead><tr><th>#</th><th>Proxy</th><th></th></tr></thead>
+                <tbody id="proxies-tbody"></tbody>
+            </table>
+        </div>
+    </section>
+
+    <!-- RUN BOT -->
+    <section class="panel hidden" data-panel="run">
+        <h2>Run Signup Bot</h2>
+        <div class="card">
+            <div class="form-grid">
+                <label>Mode
+                    <select id="run-mode">
+                        <option value="3">Both (Unlucid + CodeBuddy)</option>
+                        <option value="2" selected>CodeBuddy only</option>
+                        <option value="1">Unlucid only</option>
+                    </select>
+                </label>
+                <label>Headless
+                    <select id="run-headless">
+                        <option value="true" selected>Yes (no window)</option>
+                        <option value="false">No (show browser)</option>
+                    </select>
+                </label>
+                <label>Limit (0 = all)
+                    <input type="number" id="run-limit" value="0" min="0" />
+                </label>
+                <div>
+                    <button id="run-start" class="btn primary">Start</button>
+                    <button id="run-abort" class="btn danger" disabled>Abort</button>
+                </div>
+            </div>
+        </div>
+
+        <div class="card">
+            <div class="card-head">
+                <h3>Live log</h3>
+                <div class="muted" id="run-progress"></div>
+            </div>
+            <pre id="run-log" class="log-stream"></pre>
+        </div>
+
+        <div class="card">
+            <div class="card-head"><h3>Recent jobs</h3></div>
+            <div class="table-wrap">
+                <table>
+                    <thead><tr><th>Started</th><th>Mode</th><th>Status</th><th>Progress</th><th>Keys</th><th></th></tr></thead>
+                    <tbody id="jobs-tbody"></tbody>
+                </table>
+            </div>
+        </div>
+    </section>
+
+    <!-- SETTINGS -->
+    <section class="panel hidden" data-panel="settings">
+        <h2>Settings</h2>
+        <div class="card">
+            <div class="form-grid">
+                <label>Cooldown duration (ms)
+                    <input type="number" id="set-cooldown" />
+                    <span class="muted">Default 86_400_000 (24h). Time before a 429-d key auto-recovers.</span>
+                </label>
+                <label>Max rotations per request
+                    <input type="number" id="set-max-rotations" />
+                    <span class="muted">How many keys to try before giving up on a single client request.</span>
+                </label>
+                <label>Exposed models (comma-separated)
+                    <input type="text" id="set-models" />
+                    <span class="muted">Models advertised at <code>/v1/models</code>.</span>
+                </label>
+                <div>
+                    <button id="set-save" class="btn primary">Save</button>
+                </div>
+            </div>
+        </div>
+        <div class="card">
+            <div class="card-head"><h3>Server info</h3></div>
+            <pre id="set-info" class="snippet"></pre>
+        </div>
+    </section>
+</main>
+
+<div id="toast" class="toast"></div>
+
+<script src="/app.js"></script>
+</body>
+</html>

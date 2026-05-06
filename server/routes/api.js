@@ -1,0 +1,196 @@
+/**
+ * Dashboard backend API:
+ *
+ *   GET    /api/overview
+ *   GET    /api/pool
+ *   POST   /api/pool/reload
+ *   POST   /api/pool/:key/status   { status: active|cooldown|dead }
+ *
+ *   GET    /api/accounts
+ *   POST   /api/accounts           { lines: ["email:pass", ...] }
+ *   DELETE /api/accounts/:idx
+ *
+ *   GET    /api/proxies
+ *   POST   /api/proxies            { lines: [...] }
+ *   DELETE /api/proxies/:idx
+ *
+ *   GET    /api/jobs
+ *   POST   /api/jobs               { mode, headless, limit }
+ *   GET    /api/jobs/:id
+ *   GET    /api/jobs/:id/stream    (SSE)
+ *   POST   /api/jobs/:id/abort
+ *
+ *   GET    /api/settings
+ *   PUT    /api/settings           { COOLDOWN_MS?, EXPOSED_MODELS?, ... }
+ *
+ *   POST   /api/test-chat          { model, prompt }
+ */
+import { Router } from 'express';
+import { getConfig, updateSettings } from '../lib/config.js';
+import {
+    listPool, summary, reloadKeys, setStatus, getEntryByMaskedOrEmail
+} from '../lib/keyPool.js';
+import { loadLines, writeLines } from '../../lib/utils.js';
+import { createJob, getJob, listJobs, abortJob } from '../lib/jobs.js';
+import { streamChatCompletion } from '../lib/upstream.js';
+
+const router = Router();
+
+router.get('/overview', (req, res) => {
+    const cfg = getConfig();
+    res.json({
+        pool: summary(),
+        accounts: loadLines(cfg.ACCOUNTS_FILE).length,
+        proxies: loadLines(cfg.PROXIES_FILE).length,
+        jobs_total: listJobs().length,
+        jobs_running: listJobs().filter(j => j.status === 'running').length,
+        config: {
+            UPSTREAM_BASE: cfg.UPSTREAM_BASE,
+            COOLDOWN_MS: cfg.COOLDOWN_MS,
+            EXPOSED_MODELS: cfg.EXPOSED_MODELS,
+            PORT: cfg.PORT
+        }
+    });
+});
+
+// ---- Pool ----
+router.get('/pool', (req, res) => res.json({ summary: summary(), entries: listPool() }));
+router.post('/pool/reload', (req, res) => res.json({ count: reloadKeys() }));
+router.post('/pool/:identifier/status', (req, res) => {
+    const entry = getEntryByMaskedOrEmail(req.params.identifier);
+    if (!entry) return res.status(404).json({ error: 'key not found' });
+    try {
+        setStatus(entry.key, req.body.status);
+        res.json({ ok: true });
+    } catch (e) {
+        res.status(400).json({ error: e.message });
+    }
+});
+
+// ---- Accounts ----
+router.get('/accounts', (req, res) => {
+    const cfg = getConfig();
+    const lines = loadLines(cfg.ACCOUNTS_FILE);
+    res.json({
+        entries: lines.map((line, idx) => {
+            const [email, ...rest] = line.split(':');
+            return { idx, email, has_password: rest.length > 0 };
+        })
+    });
+});
+router.post('/accounts', (req, res) => {
+    const cfg = getConfig();
+    const newLines = (req.body.lines || []).filter(l => l && typeof l === 'string' && l.includes(':'));
+    if (req.body.replace) {
+        writeLines(cfg.ACCOUNTS_FILE, newLines);
+    } else {
+        const existing = loadLines(cfg.ACCOUNTS_FILE);
+        writeLines(cfg.ACCOUNTS_FILE, [...existing, ...newLines]);
+    }
+    res.json({ count: loadLines(cfg.ACCOUNTS_FILE).length });
+});
+router.delete('/accounts/:idx', (req, res) => {
+    const cfg = getConfig();
+    const idx = parseInt(req.params.idx);
+    const lines = loadLines(cfg.ACCOUNTS_FILE);
+    if (idx < 0 || idx >= lines.length) return res.status(404).json({ error: 'index out of range' });
+    lines.splice(idx, 1);
+    writeLines(cfg.ACCOUNTS_FILE, lines);
+    res.json({ count: lines.length });
+});
+
+// ---- Proxies ----
+router.get('/proxies', (req, res) => {
+    const cfg = getConfig();
+    res.json({ entries: loadLines(cfg.PROXIES_FILE).map((p, idx) => ({ idx, proxy: p })) });
+});
+router.post('/proxies', (req, res) => {
+    const cfg = getConfig();
+    const newLines = (req.body.lines || []).filter(l => l && typeof l === 'string');
+    if (req.body.replace) {
+        writeLines(cfg.PROXIES_FILE, newLines);
+    } else {
+        const existing = loadLines(cfg.PROXIES_FILE);
+        writeLines(cfg.PROXIES_FILE, [...existing, ...newLines]);
+    }
+    res.json({ count: loadLines(cfg.PROXIES_FILE).length });
+});
+router.delete('/proxies/:idx', (req, res) => {
+    const cfg = getConfig();
+    const idx = parseInt(req.params.idx);
+    const lines = loadLines(cfg.PROXIES_FILE);
+    if (idx < 0 || idx >= lines.length) return res.status(404).json({ error: 'index out of range' });
+    lines.splice(idx, 1);
+    writeLines(cfg.PROXIES_FILE, lines);
+    res.json({ count: lines.length });
+});
+
+// ---- Jobs (signup runner) ----
+router.get('/jobs', (req, res) => res.json({ jobs: listJobs() }));
+router.post('/jobs', (req, res) => {
+    const { mode, headless = true, limit = 0 } = req.body || {};
+    try {
+        const job = createJob({ mode: parseInt(mode), headless: !!headless, limit: parseInt(limit) || 0 });
+        res.json(job.summary());
+    } catch (e) {
+        res.status(400).json({ error: e.message });
+    }
+});
+router.get('/jobs/:id', (req, res) => {
+    const j = getJob(req.params.id);
+    if (!j) return res.status(404).json({ error: 'not found' });
+    res.json({ ...j.summary(), recentLogs: j.logs.slice(-50) });
+});
+router.get('/jobs/:id/stream', (req, res) => {
+    const j = getJob(req.params.id);
+    if (!j) return res.status(404).json({ error: 'not found' });
+    res.writeHead(200, {
+        'Content-Type': 'text/event-stream',
+        'Cache-Control': 'no-store',
+        'Connection': 'keep-alive',
+        'X-Accel-Buffering': 'no'
+    });
+    res.write(': connected\n\n');
+    j.subscribe(res);
+});
+router.post('/jobs/:id/abort', (req, res) => {
+    const ok = abortJob(req.params.id);
+    res.json({ ok });
+});
+
+// ---- Settings ----
+router.get('/settings', (req, res) => {
+    const cfg = getConfig();
+    res.json({
+        COOLDOWN_MS: cfg.COOLDOWN_MS,
+        EXPOSED_MODELS: cfg.EXPOSED_MODELS,
+        UPSTREAM_BASE: cfg.UPSTREAM_BASE,
+        MAX_ROTATIONS_PER_REQUEST: cfg.MAX_ROTATIONS_PER_REQUEST,
+        PORT: cfg.PORT
+    });
+});
+router.put('/settings', (req, res) => {
+    const allowed = ['COOLDOWN_MS', 'EXPOSED_MODELS', 'MAX_ROTATIONS_PER_REQUEST'];
+    const patch = {};
+    for (const k of allowed) {
+        if (k in (req.body || {})) patch[k] = req.body[k];
+    }
+    updateSettings(patch);
+    res.json(getConfig());
+});
+
+// ---- Quick test chat (proxies through router) ----
+router.post('/test-chat', async (req, res) => {
+    const { model = 'auto-chat', prompt = 'Reply with just OK' } = req.body || {};
+    const body = {
+        model,
+        messages: [
+            { role: 'system', content: 'You are a helpful assistant.' },
+            { role: 'user', content: prompt }
+        ],
+        stream: false
+    };
+    await streamChatCompletion(body, res);
+});
+
+export default router;

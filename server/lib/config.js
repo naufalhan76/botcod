@@ -1,0 +1,90 @@
+/**
+ * Runtime configuration with env overrides + persisted overrides.
+ */
+import fs from 'fs';
+import path from 'path';
+import { fileURLToPath } from 'url';
+
+const __dirname = path.dirname(fileURLToPath(import.meta.url));
+const ROOT = path.resolve(__dirname, '..', '..');
+
+const DEFAULTS = {
+    PORT: 4141,
+    HOST: '127.0.0.1',
+    KEYS_FILE: path.join(ROOT, 'codebuddy_keys.txt'),
+    ACCOUNTS_FILE: path.join(ROOT, 'accounts.txt'),
+    PROXIES_FILE: path.join(ROOT, 'proxies.txt'),
+    STATE_FILE: path.join(ROOT, 'server', 'state.json'),
+    SETTINGS_FILE: path.join(ROOT, 'server', 'settings.json'),
+    UPSTREAM_BASE: 'https://www.codebuddy.ai',
+    UPSTREAM_PATH: '/v2/chat/completions',
+    COOLDOWN_MS: 24 * 60 * 60 * 1000, // 24h, configurable via dashboard
+    MAX_ROTATIONS_PER_REQUEST: 5,
+    UPSTREAM_TIMEOUT_MS: 5 * 60 * 1000,
+    DASHBOARD_PASSWORD: null, // optional, if set requires X-Dashboard-Password header
+    EXPOSED_MODELS: [
+        'auto-chat',
+        'gpt-5',
+        'o4-mini',
+        'gemini-2.5-pro',
+        'gemini-2.5-flash',
+        'glm-4.6',
+        'deepseek-v3'
+    ]
+};
+
+function envOverride(key, parser = String) {
+    const v = process.env[`BOTCOD_${key}`] ?? process.env[`ROUTER_${key}`];
+    if (v === undefined || v === '') return undefined;
+    try { return parser(v); } catch { return undefined; }
+}
+
+function loadPersistedSettings(file) {
+    try {
+        if (!fs.existsSync(file)) return {};
+        return JSON.parse(fs.readFileSync(file, 'utf-8'));
+    } catch (e) {
+        return {};
+    }
+}
+
+let _config = { ...DEFAULTS };
+
+export function loadConfig() {
+    const overrides = {
+        PORT: envOverride('PORT', Number),
+        HOST: envOverride('HOST'),
+        KEYS_FILE: envOverride('KEYS_FILE'),
+        UPSTREAM_BASE: envOverride('UPSTREAM_BASE'),
+        COOLDOWN_MS: envOverride('COOLDOWN_MS', Number),
+        DASHBOARD_PASSWORD: envOverride('DASHBOARD_PASSWORD')
+    };
+
+    const persisted = loadPersistedSettings(DEFAULTS.SETTINGS_FILE);
+
+    _config = { ...DEFAULTS };
+    for (const [k, v] of Object.entries(overrides)) {
+        if (v !== undefined) _config[k] = v;
+    }
+    for (const [k, v] of Object.entries(persisted)) {
+        if (v !== undefined && v !== null && k in DEFAULTS) _config[k] = v;
+    }
+    return _config;
+}
+
+export function getConfig() {
+    return _config;
+}
+
+export function updateSettings(patch) {
+    const persisted = loadPersistedSettings(DEFAULTS.SETTINGS_FILE);
+    const merged = { ...persisted, ...patch };
+    fs.mkdirSync(path.dirname(DEFAULTS.SETTINGS_FILE), { recursive: true });
+    fs.writeFileSync(DEFAULTS.SETTINGS_FILE, JSON.stringify(merged, null, 2), 'utf-8');
+    for (const [k, v] of Object.entries(patch)) {
+        if (k in DEFAULTS) _config[k] = v;
+    }
+    return _config;
+}
+
+loadConfig();
