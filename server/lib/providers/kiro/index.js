@@ -321,7 +321,7 @@ function classifyKiroError(status, bodyText) {
         const s = bodyText.toLowerCase();
         if (s.includes('throttling') || s.includes('rate')) return 'rate_limit';
         if (s.includes('quota') || s.includes('limit')) return 'quota';
-        if (s.includes('expired') || s.includes('invalid') && s.includes('token')) return 'auth';
+        if ((s.includes('expired') || s.includes('invalid')) && s.includes('token')) return 'auth';
     }
     return null;
 }

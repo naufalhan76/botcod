@@ -350,9 +350,24 @@ Kalau model CodeBuddy ga ada di akun lo, upstream balikin `code 11102 — servic
 
 ---
 
-## Bot signup (Unlucid + CodeBuddy)
+## Bot signup (Unlucid + CodeBuddy + Kiro)
 
-Buat ngegandain `ck_…` key, ada bot bawaan yang signup akun Unlucid.ai (referral) + CodeBuddy.ai pake Camoufox + Google OAuth.
+Buat ngegandain key/credential, ada bot bawaan yang signup ke Unlucid.ai (referral), CodeBuddy.ai, dan/atau Kiro IDE pake Camoufox + Google OAuth.
+
+**Mode** (pilih di dashboard tab Run Bot):
+- **Unlucid + CodeBuddy + Kiro** — full pipeline, 1 akun Google → unlucid ref + ck_* key + Kiro refresh token.
+- **CodeBuddy + Kiro** — skip Unlucid (kalo lo udah pernah unlucid).
+- **CodeBuddy only** — cuma signup CodeBuddy, isi `codebuddy_keys.txt`.
+- **Kiro only** — cuma login Kiro, isi `kiro_credentials.json`.
+
+Kalo mode include Kiro, bot bakal:
+1. Spawn `kiro-cli login --license free --use-device-flow` (jadi syarat: `kiro-cli` dan `sqlite3` ada di PATH mesin lo).
+2. Parse device URL dari output kiro-cli, navigasi browser ke URL itu, klik "Continue with Google".
+3. Pake `lib/google.js` yang sama dengan CodeBuddy → login Google → approve device.
+4. Tunggu kiro-cli exit (token tersimpan di `~/.local/share/kiro-cli/data.sqlite3`).
+5. Baca refreshToken/clientId/clientSecret dari sqlite, langsung append ke pool Kiro sambungin (validate via refresh dulu).
+
+> **Note:** `kiro-cli` data sqlite di-share antar invocation pada mesin yang sama. Kalo lo pengen multi-akun Kiro di mesin yang sama, set ulang HOME atau jalanin di VM/container terpisah biar token ga ke-overwrite. Production multi-akun lebih reliable kalo lo pisah-pisah lewat VM.
 
 ### File input
 
@@ -374,13 +389,13 @@ http://user:pass@5.6.7.8:8080
 1. Buka tab **Accounts**, paste list akun → Save.
 2. Buka tab **Proxies**, paste list proxy → Save.
 3. Buka tab **Run Bot**:
-   - Mode: `CodeBuddy only` / `Unlucid only` / `Both`
+   - Mode: `Unlucid + CodeBuddy + Kiro` / `CodeBuddy + Kiro` / `CodeBuddy only` / `Kiro only`
    - Headless: **No** (kalau pertama kali, biar lo bisa liat) / Yes (production)
    - Limit: 0 = pake semua akun
    - Klik **Start**
-4. Live log streaming di panel bawah. Key baru otomatis ke-append ke `codebuddy_keys.txt` → langsung muncul di pool.
+4. Live log streaming di panel bawah. Key CodeBuddy baru otomatis ke-append ke `codebuddy_keys.txt` → langsung muncul di pool. Credential Kiro otomatis di-validate (refresh token → access token) lalu di-append ke `kiro_credentials.json` → langsung muncul di Kiro Pool.
 
-**Lewat CLI:**
+**Lewat CLI (mode lama, Unlucid + CodeBuddy):**
 ```bash
 npm start
 # Interactive prompts:
@@ -388,6 +403,7 @@ npm start
 # 2) Headless? y/n
 # 3) Confirm? y/n
 ```
+> CLI cuma support mode 1/2/3 (no Kiro). Buat Kiro signup, pake dashboard.
 
 ### Detail flow signup
 

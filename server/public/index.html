@@ -170,10 +170,12 @@
             <div class="form-grid">
                 <label>Mode
                     <select id="run-mode">
-                        <option value="3">Both (Unlucid + CodeBuddy)</option>
+                        <option value="7">Unlucid + CodeBuddy + Kiro</option>
+                        <option value="6">CodeBuddy + Kiro</option>
                         <option value="2" selected>CodeBuddy only</option>
-                        <option value="1">Unlucid only</option>
+                        <option value="4">Kiro only</option>
                     </select>
+                    <span class="muted">Kiro requires <code>kiro-cli</code> + <code>sqlite3</code> in PATH on this machine.</span>
                 </label>
                 <label>Headless
                     <select id="run-headless">

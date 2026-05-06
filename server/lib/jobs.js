@@ -6,7 +6,10 @@ import { randomUUID } from 'crypto';
 import { runBatch } from '../../lib/runner.js';
 import { loadLines } from '../../lib/utils.js';
 import { getConfig } from './config.js';
+import { addKiroCred } from './providers/kiro/credentials.js';
 import path from 'path';
+
+const VALID_MODES = new Set([1, 2, 3, 4, 5, 6, 7]);
 
 const _jobs = new Map(); // id -> Job
 
@@ -38,6 +41,19 @@ class Job {
             mode: this.mode,
             headless: this.headless,
             keysOutputFile,
+            onKiroCred: async (cred) => {
+                try {
+                    addKiroCred(cred);
+                } catch (e) {
+                    // surface the failure into the job log
+                    const entry = { ts: Date.now(), email: null, line: `[!] Failed to persist Kiro cred: ${e.message}` };
+                    this.logs.push(entry);
+                    for (const sub of this.subscribers) {
+                        try { sub.write(`data: ${JSON.stringify({ type: 'log', ...entry })}\n\n`); } catch {}
+                    }
+                    throw e;
+                }
+            },
             abortFlag: this.abortFlag
         });
 
@@ -92,6 +108,7 @@ class Job {
         const ok = this.results.filter(r => r.success).length;
         const fail = this.results.filter(r => !r.success).length;
         const keys = this.results.filter(r => r.apiKey).length;
+        const kiroCreds = this.results.filter(r => r.kiroCred).length;
         return {
             id: this.id,
             startedAt: this.startedAt,
@@ -104,19 +121,23 @@ class Job {
             success: ok,
             failed: fail,
             keysObtained: keys,
+            kiroCredsObtained: kiroCreds,
             error: this.error || null
         };
     }
 }
 
 export function createJob({ mode, headless = true, limit = 0, accountsList = null, proxiesList = null }) {
+    if (!VALID_MODES.has(mode)) {
+        throw new Error('mode must be one of: 1=Unlucid, 2=CodeBuddy, 4=Kiro, or any combination (3,5,6,7)');
+    }
+
     const cfg = getConfig();
     const accounts = accountsList ?? loadLines(cfg.ACCOUNTS_FILE);
     const proxies = proxiesList ?? loadLines(cfg.PROXIES_FILE);
 
     if (accounts.length === 0) throw new Error('No accounts in accounts.txt');
     if (proxies.length === 0) throw new Error('No proxies in proxies.txt');
-    if (![1, 2, 3].includes(mode)) throw new Error('mode must be 1, 2, or 3');
 
     const job = new Job({ accounts, proxies, mode, headless, limit });
     _jobs.set(job.id, job);

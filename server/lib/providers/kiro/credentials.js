@@ -209,6 +209,12 @@ const IDC_REFRESH_URL = 'https://oidc.us-east-1.amazonaws.com/token';
 
 const REFRESH_LEEWAY_MS = 60_000; // refresh 1 min before expiry
 
+// Per-credential in-flight refresh promise. Prevents concurrent callers from
+// firing parallel refresh requests with the same (single-use) refresh token —
+// AWS rotates refreshTokens on each successful refresh, so a parallel call
+// would fail with `invalid_grant` and falsely mark a healthy credential dead.
+const _refreshLocks = new Map();
+
 /**
  * Ensure the credential at `idx` has a valid (non-expired) accessToken.
  * Returns the access token string. Throws on refresh failure.
@@ -222,28 +228,45 @@ export async function getAccessTokenForCred(idx) {
         return c.accessToken;
     }
 
-    let tok;
-    try {
-        tok = c.auth === 'IdC' ? await refreshIdC(c) : await refreshSocial(c);
-    } catch (e) {
-        c.lastError = `refresh_failed: ${e.message}`;
-        c.errorCount = (c.errorCount || 0) + 1;
-        // If refresh token itself is rejected, the credential is permanently dead.
-        if (/invalid_grant|expired/.test(e.message)) {
-            c.status = 'dead';
+    // Serialize concurrent refreshes for the same credential.
+    const inflight = _refreshLocks.get(idx);
+    if (inflight) return inflight;
+
+    const p = (async () => {
+        // Re-check inside the locked path: a concurrent caller may have just
+        // populated a fresh token while we were waiting our turn.
+        const now2 = Date.now();
+        if (c.accessToken && c.expiresAt && c.expiresAt - REFRESH_LEEWAY_MS > now2) {
+            return c.accessToken;
+        }
+        let tok;
+        try {
+            tok = c.auth === 'IdC' ? await refreshIdC(c) : await refreshSocial(c);
+        } catch (e) {
+            c.lastError = `refresh_failed: ${e.message}`;
+            c.errorCount = (c.errorCount || 0) + 1;
+            // If refresh token itself is rejected, the credential is permanently dead.
+            if (/invalid_grant|expired/.test(e.message)) {
+                c.status = 'dead';
+            }
+            saveKiroStore();
+            throw e;
+        }
+
+        c.accessToken = tok.accessToken;
+        c.expiresAt = tok.expiresAt;
+        if (tok.refreshToken && tok.refreshToken !== c.refreshToken) {
+            // AWS rotates refresh tokens.
+            c.refreshToken = tok.refreshToken;
         }
         saveKiroStore();
-        throw e;
-    }
+        return c.accessToken;
+    })().finally(() => {
+        _refreshLocks.delete(idx);
+    });
 
-    c.accessToken = tok.accessToken;
-    c.expiresAt = tok.expiresAt;
-    if (tok.refreshToken && tok.refreshToken !== c.refreshToken) {
-        // AWS rotates refresh tokens.
-        c.refreshToken = tok.refreshToken;
-    }
-    saveKiroStore();
-    return c.accessToken;
+    _refreshLocks.set(idx, p);
+    return p;
 }
 
 async function refreshSocial(c) {

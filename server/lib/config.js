@@ -116,10 +116,10 @@ export function updateSettings(patch) {
     const merged = { ...persisted, ...patch };
     fs.mkdirSync(path.dirname(DEFAULTS.SETTINGS_FILE), { recursive: true });
     fs.writeFileSync(DEFAULTS.SETTINGS_FILE, JSON.stringify(merged, null, 2), 'utf-8');
-    for (const [k, v] of Object.entries(patch)) {
-        if (k in DEFAULTS) _config[k] = v;
-    }
-    return _config;
+    // Re-run loadConfig so the documented precedence
+    // (env vars > persisted dashboard settings > defaults) is preserved.
+    // Without this, any env-var override silently loses to a dashboard save.
+    return loadConfig();
 }
 
 loadConfig();
