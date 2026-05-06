@@ -1,11 +1,13 @@
-﻿{
-  "name": "multi-signup-bot",
-  "version": "2.0.0",
-  "description": "Multi-service auto signup bot (Unlucid.ai + CodeBuddy.ai) with Camoufox + proxy rotation",
+{
+  "name": "sambungin",
+  "version": "0.1.0",
+  "description": "Sambungin — local OpenAI-compatible router for CodeBuddy.ai with auto key rotation, plus a signup bot for Unlucid.ai + CodeBuddy.ai (Camoufox + proxies). One dashboard for everything.",
   "main": "index.js",
   "type": "module",
   "scripts": {
-    "start": "node index.js"
+    "start": "node index.js",
+    "dev": "node server/index.js",
+    "server": "node server/index.js"
   },
   "keywords": [],
   "author": "",
@@ -13,6 +15,8 @@
   "dependencies": {
     "camoufox-js": "^0.10.2",
     "chalk": "^5.6.2",
+    "chokidar": "^3.6.0",
+    "express": "^4.21.1",
     "playwright-core": "^1.59.1",
     "readline-sync": "^1.4.10"
   }
