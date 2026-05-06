@@ -61,4 +61,11 @@ const server = app.listen(cfg.PORT, cfg.HOST, () => {
 process.on('SIGINT', () => { console.log('\nshutting down...'); server.close(() => process.exit(0)); });
 process.on('SIGTERM', () => { server.close(() => process.exit(0)); });
 
+// Prevent stray unhandled rejections (e.g. from child-process spawn errors in
+// bot jobs) from tearing down the server.  The actual error is already surfaced
+// to the user via the job log — we just need to stop Node from exiting.
+process.on('unhandledRejection', (reason) => {
+    console.error('[server] unhandled rejection (ignored):', reason);
+});
+
 export { app, server };
