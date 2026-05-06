@@ -205,6 +205,11 @@ function aggregateNonStream(sseText) {
         usage: null
     };
 
+    // Per the OpenAI streaming protocol, tool_calls arrive incrementally:
+    // first chunk for an index has id/type/function.name, subsequent chunks
+    // append fragments to function.arguments. Merge by `index`.
+    const toolCallsByIndex = new Map();
+
     for (const ev of events) {
         for (const line of ev.split('\n')) {
             if (!line.startsWith('data:')) continue;
@@ -219,8 +224,25 @@ function aggregateNonStream(sseText) {
                         if (c.delta && typeof c.delta.content === 'string') {
                             merged.choices[0].message.content += c.delta.content;
                         }
-                        if (c.delta && Array.isArray(c.delta.tool_calls) && c.delta.tool_calls.length) {
-                            merged.choices[0].message.tool_calls = c.delta.tool_calls;
+                        if (c.delta && Array.isArray(c.delta.tool_calls)) {
+                            for (const tc of c.delta.tool_calls) {
+                                const idx = typeof tc.index === 'number' ? tc.index : 0;
+                                let acc = toolCallsByIndex.get(idx);
+                                if (!acc) {
+                                    acc = { index: idx, id: '', type: 'function', function: { name: '', arguments: '' } };
+                                    toolCallsByIndex.set(idx, acc);
+                                }
+                                if (tc.id) acc.id = tc.id;
+                                if (tc.type) acc.type = tc.type;
+                                if (tc.function) {
+                                    if (typeof tc.function.name === 'string' && tc.function.name) {
+                                        acc.function.name = tc.function.name;
+                                    }
+                                    if (typeof tc.function.arguments === 'string') {
+                                        acc.function.arguments += tc.function.arguments;
+                                    }
+                                }
+                            }
                         }
                         if (c.finish_reason) merged.choices[0].finish_reason = c.finish_reason;
                     }
@@ -228,6 +250,14 @@ function aggregateNonStream(sseText) {
                 if (chunk.usage) merged.usage = chunk.usage;
             } catch {}
         }
+    }
+
+    if (toolCallsByIndex.size) {
+        merged.choices[0].message.tool_calls = [...toolCallsByIndex.values()]
+            .sort((a, b) => a.index - b.index)
+            // Drop the synthetic `index` field from the final message; it's only
+            // used in deltas, not in the final assembled tool_calls array.
+            .map(({ index, ...rest }) => rest);
     }
 
     if (!merged.id) merged.id = `chatcmpl-${Date.now()}`;

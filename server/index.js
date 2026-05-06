@@ -20,24 +20,26 @@ const cfg = getConfig();
 const app = express();
 app.use(express.json({ limit: '10mb' }));
 
-// Optional dashboard auth (for non-localhost deployments)
-app.use((req, res, next) => {
-    const config = getConfig();
-    if (!config.DASHBOARD_PASSWORD) return next();
-    if (req.path.startsWith('/v1/')) return next(); // OpenAI endpoints unauthed
-    const token = req.headers['x-dashboard-password'] || req.query.password;
-    if (token === config.DASHBOARD_PASSWORD) return next();
-    if (req.path === '/' || req.path.startsWith('/static/')) return next();
-    res.status(401).json({ error: 'unauthorized' });
-});
-
-app.use('/v1', openaiRoutes);
-app.use('/api', apiRoutes);
-
+// Static dashboard assets (HTML, CSS, JS) are always public so the page
+// always renders. Authentication only gates the sensitive backend at /api/*
+// below. /v1/* (OpenAI-compatible endpoints) is always public so OpenCode
+// and other plain OpenAI clients work without custom headers.
 app.use(express.static(path.join(__dirname, 'public')));
 app.get('/', (req, res) => {
     res.sendFile(path.join(__dirname, 'public', 'index.html'));
 });
+
+app.use('/v1', openaiRoutes);
+
+// Optional dashboard API auth (only meaningful when binding to non-localhost).
+app.use('/api', (req, res, next) => {
+    const config = getConfig();
+    if (!config.DASHBOARD_PASSWORD) return next();
+    const token = req.headers['x-dashboard-password'] || req.query.password;
+    if (token === config.DASHBOARD_PASSWORD) return next();
+    res.status(401).json({ error: 'unauthorized' });
+});
+app.use('/api', apiRoutes);
 
 app.use((err, req, res, next) => {
     console.error('[server] error:', err);

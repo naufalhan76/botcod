@@ -71,12 +71,13 @@ export function loadConfig() {
 
     const persisted = loadPersistedSettings(DEFAULTS.SETTINGS_FILE);
 
+    // Precedence (highest wins): env vars > persisted dashboard settings > defaults.
     _config = { ...DEFAULTS };
-    for (const [k, v] of Object.entries(overrides)) {
-        if (v !== undefined) _config[k] = v;
-    }
     for (const [k, v] of Object.entries(persisted)) {
         if (v !== undefined && v !== null && k in DEFAULTS) _config[k] = v;
+    }
+    for (const [k, v] of Object.entries(overrides)) {
+        if (v !== undefined) _config[k] = v;
     }
     return _config;
 }
