@@ -100,13 +100,21 @@ export async function streamChatCompletion(openaiBody, res, opts = {}) {
 
         if (!clientWantsStream) {
             // Read full SSE upstream, aggregate to single OpenAI chat.completion JSON.
-            const fullText = await upstream.text();
-            const aggregated = aggregateNonStream(fullText);
-            res.writeHead(200, {
-                'Content-Type': 'application/json',
-                'Cache-Control': 'no-store'
-            });
-            res.end(JSON.stringify(aggregated));
+            // Wrap in try/catch: if the upstream connection drops mid-body (rare,
+            // but possible after headers succeed), upstream.text() rejects and
+            // Express 4 does not auto-catch async route errors -> client hangs.
+            try {
+                const fullText = await upstream.text();
+                const aggregated = aggregateNonStream(fullText);
+                res.writeHead(200, {
+                    'Content-Type': 'application/json',
+                    'Cache-Control': 'no-store'
+                });
+                res.end(JSON.stringify(aggregated));
+            } catch (err) {
+                log(`non-stream body read error w/ key ${maskKey(entry.key)}: ${err.message}`);
+                sendErrorJson(res, 502, 'upstream_body_error', err.message);
+            }
             return;
         }
 
