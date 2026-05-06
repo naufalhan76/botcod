@@ -20,7 +20,7 @@ router.get('/models', (req, res) => {
             id,
             object: 'model',
             created,
-            owned_by: 'codebuddy-router'
+            owned_by: 'sambungin'
         }))
     });
 });

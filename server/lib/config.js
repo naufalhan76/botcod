@@ -43,7 +43,7 @@ const DEFAULTS = {
 };
 
 function envOverride(key, parser = String) {
-    const v = process.env[`BOTCOD_${key}`] ?? process.env[`ROUTER_${key}`];
+    const v = process.env[`SAMBUNGIN_${key}`] ?? process.env[`BOTCOD_${key}`] ?? process.env[`ROUTER_${key}`];
     if (v === undefined || v === '') return undefined;
     try { return parser(v); } catch { return undefined; }
 }

@@ -48,7 +48,7 @@ app.use((err, req, res, next) => {
 startWatcher();
 
 const server = app.listen(cfg.PORT, cfg.HOST, () => {
-    console.log(`\nbotcod server listening on http://${cfg.HOST}:${cfg.PORT}`);
+    console.log(`\nsambungin server listening on http://${cfg.HOST}:${cfg.PORT}`);
     console.log(`  Dashboard:  http://${cfg.HOST}:${cfg.PORT}/`);
     console.log(`  OpenAI API: http://${cfg.HOST}:${cfg.PORT}/v1`);
     console.log(`  Models:     ${cfg.EXPOSED_MODELS.join(', ')}\n`);

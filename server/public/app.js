@@ -1,4 +1,4 @@
-// botcod dashboard frontend (vanilla JS, no build step)
+// sambungin dashboard frontend (vanilla JS, no build step)
 
 const $ = (sel) => document.querySelector(sel);
 const $$ = (sel) => Array.from(document.querySelectorAll(sel));
@@ -83,9 +83,9 @@ async function loadOverview() {
         const snippet = JSON.stringify({
             "$schema": "https://opencode.ai/config.json",
             provider: {
-                "codebuddy-router": {
+                "sambungin": {
                     npm: "@ai-sdk/openai-compatible",
-                    name: "CodeBuddy Router",
+                    name: "Sambungin (CodeBuddy)",
                     options: {
                         baseURL: baseUrl,
                         apiKey: "not-required-router-doesnt-check"

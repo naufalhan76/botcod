@@ -1,7 +1,7 @@
 {
-  "name": "multi-signup-bot",
-  "version": "2.1.0",
-  "description": "Multi-service auto signup bot (Unlucid.ai + CodeBuddy.ai) with Camoufox + proxy rotation, plus an OpenAI-compatible router with auto key rotation for OpenCode.",
+  "name": "sambungin",
+  "version": "0.1.0",
+  "description": "Sambungin — local OpenAI-compatible router for CodeBuddy.ai with auto key rotation, plus a signup bot for Unlucid.ai + CodeBuddy.ai (Camoufox + proxies). One dashboard for everything.",
   "main": "index.js",
   "type": "module",
   "scripts": {
