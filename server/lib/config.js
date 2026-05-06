@@ -24,11 +24,20 @@ const DEFAULTS = {
     DASHBOARD_PASSWORD: null, // optional, if set requires X-Dashboard-Password header
     EXPOSED_MODELS: [
         'auto-chat',
+        'claude-opus-4.6',
+        'gpt-5.5',
+        'gpt-5.2',
+        'gpt-5.1',
         'gpt-5',
+        'gpt-5-codex',
+        'o3',
         'o4-mini',
+        'gemini-3.1-pro',
+        'gemini-3.0-pro',
         'gemini-2.5-pro',
         'gemini-2.5-flash',
         'glm-4.6',
+        'deepseek-v3.2',
         'deepseek-v3'
     ]
 };

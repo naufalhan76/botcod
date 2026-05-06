@@ -105,19 +105,28 @@ OpenCode (and any OpenAI client) sees a single, stable endpoint — they re-send
 
 ## Available models
 
-Verified working with a free CodeBuddy account on this machine (the upstream maps each to a backend model):
+Verified working against `https://www.codebuddy.ai/v2/chat/completions` with a real `ck_` key:
 
 | Exposed name       | Upstream model              |
 | ------------------ | --------------------------- |
-| `auto-chat`        | glm-4.6                     |
+| `auto-chat`        | glm-4.6 (default fallback)  |
+| `claude-opus-4.6`  | claude-opus-4.6             |
+| `gpt-5.5`          | gpt-5.5                     |
+| `gpt-5.2`          | gpt-5.2                     |
+| `gpt-5.1`          | gpt-5.1                     |
 | `gpt-5`            | gpt-5-2025-08-07            |
+| `gpt-5-codex`      | gpt-5-codex-2               |
+| `o3`               | o3-2025-04-16               |
 | `o4-mini`          | o4-mini-2025-04-16          |
+| `gemini-3.1-pro`   | gemini-3.1-pro-preview      |
+| `gemini-3.0-pro`   | gemini-3-pro-preview        |
 | `gemini-2.5-pro`   | gemini-2.5-pro              |
 | `gemini-2.5-flash` | gemini-2.5-flash            |
 | `glm-4.6`          | glm-4.6                     |
+| `deepseek-v3.2`    | deepseek-v3.2               |
 | `deepseek-v3`      | deepseek-v3                 |
 
-Some Anthropic Claude models are not exposed by free CodeBuddy accounts and will return `"model … service info not found"`. Adjust the list in **Settings** to match what your accounts have.
+Adjust the list in **Settings → Exposed models** if your CodeBuddy account doesn't have access to a particular model. Models not on this account return `code 11102 — service info not found`.
 
 ## Bot signup flow (unchanged from v2.0)
 
