@@ -14,4 +14,8 @@ export interface HistoryEntry {
   prompt_preview?: string
 }
 
-export type HistoryResponse = HistoryEntry[]
+export interface HistoryResponse {
+  entries: HistoryEntry[]
+  total: number
+  max: number
+}

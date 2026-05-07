@@ -41,12 +41,14 @@ export default function HistoryPage() {
   const [statusFilter, setStatusFilter] = useState<string>('all');
   const [showClearDialog, setShowClearDialog] = useState(false);
 
+  const entries = history?.entries ?? [];
+
   // Extract unique models and providers
   const { models, providers } = useMemo(() => {
-    if (!history) return { models: [], providers: [] };
+    if (!entries.length) return { models: [], providers: [] };
     const modelSet = new Set<string>();
     const providerSet = new Set<string>();
-    history.forEach((entry) => {
+    entries.forEach((entry) => {
       if (entry.model) modelSet.add(entry.model);
       if (entry.provider) providerSet.add(entry.provider);
     });
@@ -54,12 +56,12 @@ export default function HistoryPage() {
       models: Array.from(modelSet).sort(),
       providers: Array.from(providerSet).sort(),
     };
-  }, [history]);
+  }, [entries]);
 
   // Filter history
   const filteredHistory = useMemo(() => {
-    if (!history) return [];
-    return history.filter((entry) => {
+    if (!entries.length) return [];
+    return entries.filter((entry) => {
       if (modelFilter !== 'all' && entry.model !== modelFilter) return false;
       if (providerFilter !== 'all' && entry.provider !== providerFilter) return false;
       if (statusFilter !== 'all') {
@@ -190,7 +192,7 @@ export default function HistoryPage() {
         <Button
           variant="destructive"
           onClick={() => setShowClearDialog(true)}
-          disabled={!history || history.length === 0}
+          disabled={!entries.length}
         >
           <MdDelete className="mr-2 h-4 w-4" />
           Clear History
@@ -198,7 +200,7 @@ export default function HistoryPage() {
       </div>
 
       {/* Table */}
-      {!history || history.length === 0 ? (
+      {!entries.length ? (
         <EmptyState
           icon={MdHistory}
           title="No request history yet"
