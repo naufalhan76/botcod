@@ -35,9 +35,9 @@ import { showError, showSuccess } from '@/lib/toast'
 import type { Job } from '@/types'
 
 const BOT_MODES = [
-  { value: '1', label: 'Unlucid + CodeBuddy + Kiro' },
-  { value: '2', label: 'CodeBuddy + Kiro' },
-  { value: '3', label: 'CodeBuddy only' },
+  { value: '7', label: 'Unlucid + CodeBuddy + Kiro' },
+  { value: '6', label: 'CodeBuddy + Kiro' },
+  { value: '2', label: 'CodeBuddy only' },
   { value: '4', label: 'Kiro only' },
 ]
 
@@ -68,7 +68,8 @@ export default function RunBotPage() {
   const createJob = useCreateJob()
   const abortJob = useAbortJob()
   const [dialogOpen, setDialogOpen] = useState(false)
-  const [mode, setMode] = useState('1')
+  const [mode, setMode] = useState('7')
+  const [browserEngine, setBrowserEngine] = useState('camoufox')
   const [headless, setHeadless] = useState(true)
   const [limit, setLimit] = useState(0)
   const [concurrency, setConcurrency] = useState(1)
@@ -83,6 +84,7 @@ export default function RunBotPage() {
       await createJob.mutateAsync({
         mode: Number(mode),
         headless,
+        browserEngine,
         limit: Math.max(0, Number(limit) || 0),
         concurrency: Math.min(5, Math.max(1, Number(concurrency) || 1)),
       })
@@ -142,6 +144,22 @@ export default function RunBotPage() {
                         ))}
                       </SelectContent>
                     </Select>
+                  </label>
+
+                  <label className="grid gap-2 text-sm font-medium">
+                    Browser Engine
+                    <Select value={browserEngine} onValueChange={setBrowserEngine}>
+                      <SelectTrigger className="w-full">
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="camoufox">Camoufox (Firefox)</SelectItem>
+                        <SelectItem value="cloakbrowser">CloakBrowser (Chromium)</SelectItem>
+                      </SelectContent>
+                    </Select>
+                    <span className="text-xs font-normal text-muted-foreground">
+                      CloakBrowser uses ~60% less RAM but requires first-run binary download (~200MB).
+                    </span>
                   </label>
 
                   <label className="flex items-center justify-between rounded-lg border px-3 py-2 text-sm font-medium">

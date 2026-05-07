@@ -65,7 +65,7 @@ export default function HistoryPage() {
       if (modelFilter !== 'all' && entry.model !== modelFilter) return false;
       if (providerFilter !== 'all' && entry.provider !== providerFilter) return false;
       if (statusFilter !== 'all') {
-        const isSuccess = entry.status === 'success' || (!entry.error && entry.total_tokens > 0);
+        const isSuccess = entry.ok === true || entry.response_code === 'success' || entry.status === 'success';
         if (statusFilter === 'success' && !isSuccess) return false;
         if (statusFilter === 'error' && isSuccess) return false;
       }
@@ -89,14 +89,18 @@ export default function HistoryPage() {
     return `${latency}ms`;
   };
 
-  const formatTime = (timestamp?: string) => {
-    if (!timestamp) return '-';
-    const date = new Date(timestamp);
+  const formatTime = (entry: any) => {
+    // Backend uses `ts` (ISO string)
+    const raw = entry.timestamp || entry.ts;
+    if (!raw) return '-';
+    const date = new Date(raw);
+    if (Number.isNaN(date.getTime())) return '-';
     return date.toLocaleString();
   };
 
   const getStatusBadge = (entry: any) => {
-    const isSuccess = entry.status === 'success' || (!entry.error && entry.tokens);
+    // Backend uses `ok` (boolean) and `response_code` ("success"/"error")
+    const isSuccess = entry.ok === true || entry.response_code === 'success' || entry.status === 'success' || (!entry.error && entry.ok !== false);
     return (
       <Badge variant={isSuccess ? 'default' : 'destructive'} className={isSuccess ? 'bg-emerald-500' : 'bg-rose-500'}>
         {isSuccess ? 'Success' : 'Error'}
@@ -225,16 +229,16 @@ export default function HistoryPage() {
             </TableHeader>
             <TableBody>
               {filteredHistory.map((entry, index) => (
-                <TableRow key={index}>
-                  <TableCell>{formatTime(entry.timestamp)}</TableCell>
+                <TableRow key={entry.id || index}>
+                  <TableCell>{formatTime(entry)}</TableCell>
                   <TableCell className="font-mono text-sm">{entry.model || '-'}</TableCell>
                   <TableCell>{entry.provider || '-'}</TableCell>
                   <TableCell>
                     {entry.prompt_tokens || entry.completion_tokens
                       ? `${formatTokens(entry.prompt_tokens)}+${formatTokens(entry.completion_tokens)}`
-                      : '-'}
+                      : entry.message_count ? `${entry.message_count} msgs` : '-'}
                   </TableCell>
-                  <TableCell>{formatLatency(entry.latency_ms)}</TableCell>
+                  <TableCell>{formatLatency(entry.latency_ms || entry.duration_ms)}</TableCell>
                   <TableCell>{getStatusBadge(entry)}</TableCell>
                 </TableRow>
               ))}

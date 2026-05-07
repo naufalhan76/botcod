@@ -1,5 +1,13 @@
 import type { PoolSummary } from './overview'
 
+export interface WarmupSummary {
+  tested: number
+  ok: number
+  dead: number
+  cooldown: number
+  timeout: number
+}
+
 export interface PoolEntry {
   key_masked: string
   email: string

@@ -50,7 +50,7 @@ import { getRequestStats, getTokenStats, getPerformanceStats, getProviderHealth 
 import {
     listFilters, addFilter, updateFilter, removeFilter, toggleFilter
 } from '../lib/contentFilter.js';
-import { warmupCodeBuddy, warmupKiro } from '../lib/warmup.js';
+import { warmupCodeBuddy, warmupKiro, fetchAllKiroUsage, fetchKiroCredUsage } from '../lib/warmup.js';
 
 const router = Router();
 
@@ -113,6 +113,37 @@ router.post('/kiro/pool/:idx/status', (req, res) => {
 router.post('/kiro/pool/purge-dead', (req, res) => {
     const removed = purgeDeadKiroCreds();
     res.json({ removed });
+});
+
+// ---- Kiro Usage/Credits ----
+router.get('/kiro/pool/usage', async (req, res) => {
+    try {
+        const results = await fetchAllKiroUsage();
+        const totals = results.reduce((acc, r) => {
+            if (r.usage) {
+                acc.total_limit += r.usage.limit;
+                acc.total_used += r.usage.used;
+                acc.total_remaining += r.usage.remaining;
+                acc.fetched++;
+            }
+            return acc;
+        }, { total_limit: 0, total_used: 0, total_remaining: 0, fetched: 0 });
+        res.json({ summary: totals, credentials: results });
+    } catch (err) {
+        res.status(500).json({ error: err.message });
+    }
+});
+
+router.get('/kiro/pool/:idx/usage', async (req, res) => {
+    const idx = parseInt(req.params.idx, 10);
+    if (isNaN(idx)) return res.status(400).json({ error: 'invalid idx' });
+    try {
+        const usage = await fetchKiroCredUsage(idx);
+        if (!usage) return res.status(404).json({ error: 'failed to fetch usage' });
+        res.json(usage);
+    } catch (err) {
+        res.status(500).json({ error: err.message });
+    }
 });
 
 // ---- Temp mail ----
@@ -310,11 +341,12 @@ router.delete('/proxies/:idx', (req, res) => {
 // ---- Jobs (signup runner) ----
 router.get('/jobs', (req, res) => res.json({ jobs: listJobs() }));
 router.post('/jobs', (req, res) => {
-    const { mode, headless = true, limit = 0, concurrency = 1 } = req.body || {};
+    const { mode, headless = true, browserEngine = 'camoufox', limit = 0, concurrency = 1 } = req.body || {};
     try {
         const job = createJob({
             mode: parseInt(mode),
             headless: !!headless,
+            browserEngine: browserEngine || 'camoufox',
             limit: parseInt(limit) || 0,
             concurrency: parseInt(concurrency) || 1
         });
