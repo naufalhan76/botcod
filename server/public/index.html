@@ -15,12 +15,13 @@
     </div>
     <nav class="tabs" role="tablist">
         <button class="tab active" data-tab="overview" role="tab">Overview</button>
-        <button class="tab" data-tab="pool" role="tab">CodeBuddy Pool</button>
-        <button class="tab" data-tab="kiro" role="tab">Kiro Pool</button>
+        <button class="tab" data-tab="pool" role="tab">Provider Pool</button>
         <button class="tab" data-tab="accounts" role="tab">Accounts</button>
         <button class="tab" data-tab="proxies" role="tab">Proxies</button>
         <button class="tab" data-tab="run" role="tab">Run Bot</button>
         <button class="tab" data-tab="tempmail" role="tab">Temp Mail</button>
+        <button class="tab" data-tab="history" role="tab">History</button>
+        <button class="tab" data-tab="filters" role="tab">Content Filter</button>
         <button class="tab" data-tab="settings" role="tab">Settings</button>
     </nav>
 </header>
@@ -56,33 +57,27 @@
         </div>
     </section>
 
-    <!-- CODEBUDDY POOL -->
+    <!-- PROVIDER POOL -->
     <section class="panel hidden" data-panel="pool">
         <div class="panel-head">
-            <h2>CodeBuddy Key Pool</h2>
+            <h2>Provider Pool</h2>
             <div class="panel-actions">
                 <button id="pool-reload" class="btn">Reload from file</button>
+                <button id="kiro-reload" class="btn">Reload Kiro</button>
             </div>
         </div>
+        <h3 class="section-title">CodeBuddy keys</h3>
         <p class="muted">Source: <code>codebuddy_keys.txt</code> (format <code>email:ck_xxx.yyy</code>). Status auto-refreshes every 5s. Cooldown timer auto-promotes back to active.</p>
         <div class="table-wrap">
             <table>
                 <thead>
-                    <tr><th>Email</th><th>Key</th><th>Status</th><th>Last used</th><th>Cooldown ends</th><th>Usage</th><th>Errors</th><th>Actions</th></tr>
+                    <tr><th>Email</th><th>Key</th><th>Status</th><th>Credit</th><th>Last used</th><th>Cooldown ends</th><th>Usage</th><th>Errors</th><th>Actions</th></tr>
                 </thead>
                 <tbody id="pool-tbody"></tbody>
             </table>
         </div>
-    </section>
 
-    <!-- KIRO POOL -->
-    <section class="panel hidden" data-panel="kiro">
-        <div class="panel-head">
-            <h2>Kiro Credential Pool</h2>
-            <div class="panel-actions">
-                <button id="kiro-reload" class="btn">Reload</button>
-            </div>
-        </div>
+        <h3 class="section-title">Kiro credentials</h3>
         <p class="muted">Each credential = 1 Kiro account (free tier = 50 credits/month + 500 bonus). Stored in <code>kiro_credentials.json</code> (gitignored). Tokens auto-refresh ~1 min before expiry. Cooldown after rate-limit, auto-recovers.</p>
 
         <div class="card">
@@ -111,7 +106,7 @@
         <div class="table-wrap">
             <table>
                 <thead>
-                    <tr><th>Label</th><th>Auth</th><th>Status</th><th>Token expires</th><th>Last used</th><th>Cooldown ends</th><th>Usage</th><th>Errors</th><th>Actions</th></tr>
+                    <tr><th>Label</th><th>Auth</th><th>Status</th><th>Credit</th><th>Token expires</th><th>Last used</th><th>Cooldown ends</th><th>Usage</th><th>Errors</th><th>Actions</th></tr>
                 </thead>
                 <tbody id="kiro-tbody"></tbody>
             </table>
@@ -377,6 +372,95 @@
         </div>
     </section>
 
+    <!-- HISTORY -->
+    <section class="panel hidden" data-panel="history">
+        <div class="panel-head">
+            <h2>AI Request History</h2>
+            <div class="panel-actions">
+                <select id="history-limit">
+                    <option value="50">Last 50</option>
+                    <option value="100" selected>Last 100</option>
+                    <option value="250">Last 250</option>
+                    <option value="500">Last 500</option>
+                </select>
+                <button id="history-refresh" class="btn">Refresh</button>
+                <button id="history-clear" class="btn danger">Clear</button>
+            </div>
+        </div>
+        <p class="muted">Persisted in <code>server/history.json</code>. Sensitive-looking fields are redacted and long text is truncated.</p>
+        <div class="card-grid">
+            <div class="card stat"><div class="stat-label">Stored</div><div class="stat-value" id="history-total">-</div></div>
+            <div class="card stat"><div class="stat-label">Shown</div><div class="stat-value" id="history-shown">-</div></div>
+            <div class="card stat"><div class="stat-label">Errors</div><div class="stat-value" id="history-errors">-</div></div>
+        </div>
+        <div class="table-wrap">
+            <table>
+                <thead>
+                    <tr><th>Time</th><th>Source</th><th>Provider</th><th>Model</th><th>Response</th><th>Duration</th><th>Prompt</th><th>Action</th></tr>
+                </thead>
+                <tbody id="history-tbody"></tbody>
+            </table>
+        </div>
+        <div id="history-detail" class="card hidden">
+            <div class="card-head">
+                <h3 id="history-detail-title">Request detail</h3>
+                <button id="history-detail-close" class="btn">Close</button>
+            </div>
+            <div id="history-result" class="history-result"></div>
+            <div class="muted">Request</div>
+            <pre id="history-request" class="snippet"></pre>
+        </div>
+    </section>
+
+    <!-- CONTENT FILTER -->
+    <section class="panel hidden" data-panel="filters">
+        <div class="panel-head">
+            <h2>Content Filter</h2>
+        </div>
+        <p class="muted">
+            Pattern-based string replacement applied to requests before forwarding to upstream.
+            Use this to strip fingerprints (billing headers, identity strings, entrypoint markers) that cause upstream providers to refuse requests.
+            Action <strong>remove</strong> = replace with empty string. You can also specify a custom replacement.
+        </p>
+
+        <div class="card">
+            <div class="card-head"><h3>Add filter rule</h3></div>
+            <div class="form-grid">
+                <label>Pattern (exact string match)
+                    <input id="filter-pattern" placeholder="e.g. cc_entrypoint=cli" />
+                </label>
+                <label>Replacement (empty = remove)
+                    <input id="filter-replacement" placeholder="leave empty to remove" />
+                </label>
+                <label>Target
+                    <select id="filter-target">
+                        <option value="body" selected>Body (message content)</option>
+                        <option value="headers">Headers</option>
+                        <option value="both">Both</option>
+                    </select>
+                </label>
+                <div>
+                    <button id="filter-add" class="btn primary">Add rule</button>
+                </div>
+            </div>
+        </div>
+
+        <div class="card">
+            <div class="card-head">
+                <h3>Active rules</h3>
+                <span class="muted" id="filter-count"></span>
+            </div>
+            <div class="table-wrap">
+                <table>
+                    <thead>
+                        <tr><th>Pattern</th><th>Replacement</th><th>Target</th><th>Active</th><th>Actions</th></tr>
+                    </thead>
+                    <tbody id="filter-tbody"></tbody>
+                </table>
+            </div>
+        </div>
+    </section>
+
     <!-- SETTINGS -->
     <section class="panel hidden" data-panel="settings">
         <h2>Settings</h2>
@@ -396,6 +480,36 @@
                 </label>
                 <div>
                     <button id="set-save" class="btn primary">Save</button>
+                </div>
+            </div>
+        </div>
+        <div class="card">
+            <div class="card-head"><h3>Token Optimization</h3></div>
+            <p class="muted">Built-in token savers that reduce cost without sacrificing quality. Both are ON by default.</p>
+            <div class="form-grid">
+                <label>RTK Token Saver
+                    <select id="set-rtk">
+                        <option value="true">ON (compress tool_result, save 20-40% input tokens)</option>
+                        <option value="false">OFF</option>
+                    </select>
+                    <span class="muted">Auto-compress tool outputs (git diff, grep, find, ls, tree) before sending to LLM. Lossless, safe.</span>
+                </label>
+                <label>Caveman Mode
+                    <select id="set-caveman">
+                        <option value="true">ON (inject terse prompt, save up to 65% output tokens)</option>
+                        <option value="false">OFF</option>
+                    </select>
+                    <span class="muted">Inject system prompt that makes LLM reply concise. Technical accuracy preserved.</span>
+                </label>
+                <label>Caveman Intensity
+                    <select id="set-caveman-level">
+                        <option value="lite">Lite (~25% savings, normal grammar, just concise)</option>
+                        <option value="full">Full (~50% savings, drop articles/filler)</option>
+                        <option value="ultra">Ultra (~65% savings, bare minimum words)</option>
+                    </select>
+                </label>
+                <div>
+                    <button id="set-token-save" class="btn primary">Save token settings</button>
                 </div>
             </div>
         </div>

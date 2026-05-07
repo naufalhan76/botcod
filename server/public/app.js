@@ -7,6 +7,7 @@ let _models = [];
 let _currentJobId = null;
 let _currentJobStream = null;
 let _refreshTimers = {};
+let _historyEntries = [];
 
 // ---- Toast ----
 function toast(msg, isError = false) {
@@ -48,11 +49,8 @@ function onTabSwitch(tab) {
         loadOverview();
         _refreshTimers.overview = setInterval(loadOverview, 5000);
     } else if (tab === 'pool') {
-        loadPool();
-        _refreshTimers.pool = setInterval(loadPool, 5000);
-    } else if (tab === 'kiro') {
-        loadKiroPool();
-        _refreshTimers.kiro = setInterval(loadKiroPool, 5000);
+        loadProviderPool();
+        _refreshTimers.pool = setInterval(loadProviderPool, 5000);
     } else if (tab === 'accounts') {
         loadAccounts();
     } else if (tab === 'proxies') {
@@ -63,6 +61,11 @@ function onTabSwitch(tab) {
     } else if (tab === 'tempmail') {
         loadTempmail();
         _refreshTimers.tempmail = setInterval(loadTempmail, 5000);
+    } else if (tab === 'history') {
+        loadHistory();
+        _refreshTimers.history = setInterval(loadHistory, 5000);
+    } else if (tab === 'filters') {
+        loadFilters();
     } else if (tab === 'settings') {
         loadSettings();
     }
@@ -135,17 +138,22 @@ $('#test-send').addEventListener('click', async () => {
 });
 
 // ---- POOL ----
+async function loadProviderPool() {
+    await Promise.all([loadPool(), loadKiroPool()]);
+}
+
 async function loadPool() {
     try {
         const data = await api('GET', '/api/pool');
         const tbody = $('#pool-tbody');
         tbody.innerHTML = data.entries.length === 0
-            ? `<tr><td colspan="8" class="muted" style="text-align:center;padding:20px;">No keys loaded. Add to <code>codebuddy_keys.txt</code> or run the bot.</td></tr>`
+            ? `<tr><td colspan="9" class="muted" style="text-align:center;padding:20px;">No keys loaded. Add to <code>codebuddy_keys.txt</code> or run the bot.</td></tr>`
             : data.entries.map(e => `
                 <tr>
                     <td>${esc(e.email)}</td>
                     <td><code>${esc(e.key_masked)}</code></td>
                     <td><span class="badge ${e.status}">${e.status}</span></td>
+                    <td>${creditChip(e)}</td>
                     <td>${e.last_used_at ? fmtTime(e.last_used_at) : '<span class="muted">never</span>'}</td>
                     <td>${e.cooldown_until ? fmtTime(e.cooldown_until) : '<span class="muted">–</span>'}</td>
                     <td>${e.usage_count}</td>
@@ -165,7 +173,7 @@ async function loadPool() {
             try {
                 await api('POST', `/api/pool/${encodeURIComponent(key)}/status`, { status });
                 toast(`Status updated → ${status}`);
-                loadPool();
+                loadProviderPool();
             } catch (e) {
                 toast(e.message, true);
             }
@@ -177,7 +185,7 @@ async function loadPool() {
 $('#pool-reload').addEventListener('click', async () => {
     const r = await api('POST', '/api/pool/reload');
     toast(`Reloaded: ${r.count} key(s)`);
-    loadPool();
+    loadProviderPool();
 });
 
 // ---- KIRO POOL ----
@@ -186,12 +194,13 @@ async function loadKiroPool() {
         const data = await api('GET', '/api/kiro/pool');
         const tbody = $('#kiro-tbody');
         tbody.innerHTML = data.entries.length === 0
-            ? `<tr><td colspan="9" class="muted" style="text-align:center;padding:20px;">No Kiro credentials. Add one above.</td></tr>`
+            ? `<tr><td colspan="10" class="muted" style="text-align:center;padding:20px;">No Kiro credentials. Add one above.</td></tr>`
             : data.entries.map(e => `
                 <tr>
                     <td>${esc(e.label)}</td>
                     <td>${esc(e.auth)}${e.has_client_secret ? '' : ' <span class="muted">(no secret)</span>'}</td>
                     <td><span class="badge ${e.status}">${e.status}</span></td>
+                    <td>${creditChip(e)}</td>
                     <td>${e.expires_at ? fmtTime(e.expires_at) : '<span class="muted">–</span>'}</td>
                     <td>${e.last_used_at ? fmtTime(e.last_used_at) : '<span class="muted">never</span>'}</td>
                     <td>${e.cooldown_until ? fmtTime(e.cooldown_until) : '<span class="muted">–</span>'}</td>
@@ -210,7 +219,7 @@ async function loadKiroPool() {
             try {
                 await api('POST', `/api/kiro/pool/${b.dataset.idx}/status`, { status: b.dataset.kiroStatus });
                 toast(`Status → ${b.dataset.kiroStatus}`);
-                loadKiroPool();
+                loadProviderPool();
             } catch (e) { toast(e.message, true); }
         }));
         tbody.querySelectorAll('button[data-kiro-del]').forEach(b => b.addEventListener('click', async () => {
@@ -218,7 +227,7 @@ async function loadKiroPool() {
             try {
                 await api('DELETE', `/api/kiro/pool/${b.dataset.kiroDel}`);
                 toast('Deleted');
-                loadKiroPool();
+                loadProviderPool();
             } catch (e) { toast(e.message, true); }
         }));
     } catch (e) {
@@ -227,7 +236,7 @@ async function loadKiroPool() {
 }
 $('#kiro-reload').addEventListener('click', async () => {
     await api('POST', '/api/kiro/pool/reload');
-    loadKiroPool();
+    loadProviderPool();
 });
 $('#kiro-add-btn').addEventListener('click', async () => {
     const payload = {
@@ -249,7 +258,7 @@ $('#kiro-add-btn').addEventListener('click', async () => {
         } else {
             toast(`Added but refresh failed: ${r.error}`, true);
         }
-        loadKiroPool();
+        loadProviderPool();
     } catch (e) {
         toast(e.message, true);
     }
@@ -373,6 +382,9 @@ $('#run-abort').addEventListener('click', async () => {
     if (_currentJobId) {
         await api('POST', `/api/jobs/${_currentJobId}/abort`);
         toast('Abort signal sent');
+        $('#run-abort').disabled = true;
+        $('#run-progress').textContent = 'Status: aborting';
+        loadJobs();
     }
 });
 
@@ -396,6 +408,8 @@ function attachJobStream(jobId) {
                 lineCount++;
             } else if (msg.type === 'progress') {
                 $('#run-progress').textContent = `Progress: ${msg.current}/${msg.total} · ${msg.email}: ${msg.result.success ? 'OK' : (msg.result.error || 'fail')}`;
+            } else if (msg.type === 'status') {
+                $('#run-progress').textContent = `Status: ${msg.status}`;
             } else if (msg.type === 'done') {
                 appendLog(`\n[done] status=${msg.status}${msg.error ? ` error=${msg.error}` : ''}`);
                 $('#run-abort').disabled = true;
@@ -415,6 +429,72 @@ function appendLog(line) {
     if (atBottom) el.scrollTop = el.scrollHeight;
 }
 
+// ---- HISTORY ----
+async function loadHistory() {
+    try {
+        const limit = $('#history-limit').value || '100';
+        const data = await api('GET', `/api/history?limit=${encodeURIComponent(limit)}`);
+        _historyEntries = data.entries || [];
+        const errors = _historyEntries.filter(e => !e.ok).length;
+        $('#history-total').textContent = data.total ?? _historyEntries.length;
+        $('#history-shown').textContent = _historyEntries.length;
+        $('#history-errors').textContent = errors;
+
+        const tbody = $('#history-tbody');
+        tbody.innerHTML = _historyEntries.length === 0
+            ? `<tr><td colspan="8" class="muted" style="text-align:center;padding:20px;">No AI API requests recorded yet.</td></tr>`
+            : _historyEntries.map(e => {
+                const statusClass = e.ok ? 'active' : 'error';
+                const statusText = e.aborted ? 'error' : (e.response_code || (e.ok ? 'success' : 'error'));
+                return `
+                    <tr>
+                        <td>${fmtTime(e.ts)}</td>
+                        <td>${esc(e.source || e.endpoint || '-')}</td>
+                        <td>${esc(e.provider || '-')}</td>
+                        <td><code>${esc(e.model || '-')}</code></td>
+                        <td><span class="badge ${statusClass}">${esc(statusText)}</span> <span class="muted">${esc(e.status_code || '-')}</span></td>
+                        <td>${Number.isFinite(e.duration_ms) ? `${e.duration_ms}ms` : '-'}</td>
+                        <td class="history-prompt">${esc(e.prompt_preview || '')}</td>
+                        <td><button class="btn" data-history-view="${esc(e.id)}">View</button></td>
+                    </tr>
+                `;
+            }).join('');
+        tbody.querySelectorAll('button[data-history-view]').forEach(b => {
+            b.addEventListener('click', () => showHistoryDetail(b.dataset.historyView));
+        });
+    } catch (e) {
+        toast(`History load failed: ${e.message}`, true);
+    }
+}
+
+function showHistoryDetail(id) {
+    const entry = _historyEntries.find(e => e.id === id);
+    if (!entry) return;
+    const code = entry.response_code || (entry.ok ? 'success' : 'error');
+    $('#history-detail-title').textContent = `${entry.endpoint || 'Request'} - ${code}`;
+    $('#history-result').innerHTML = `
+        <span class="badge ${entry.ok ? 'active' : 'error'}">${esc(code)}</span>
+        <span class="muted">HTTP ${esc(entry.status_code || '-')} - ${Number.isFinite(entry.duration_ms) ? `${entry.duration_ms}ms` : '-'}</span>
+    `;
+    $('#history-request').textContent = JSON.stringify(entry.request || {}, null, 2);
+    $('#history-detail').classList.remove('hidden');
+}
+
+function closeHistoryDetail() {
+    $('#history-detail').classList.add('hidden');
+}
+
+$('#history-refresh').addEventListener('click', loadHistory);
+$('#history-limit').addEventListener('change', loadHistory);
+$('#history-detail-close').addEventListener('click', closeHistoryDetail);
+$('#history-clear').addEventListener('click', async () => {
+    if (!confirm('Clear all AI request history?')) return;
+    await api('DELETE', '/api/history');
+    closeHistoryDetail();
+    toast('History cleared');
+    await loadHistory();
+});
+
 // ---- SETTINGS ----
 async function loadSettings() {
     const s = await api('GET', '/api/settings');
@@ -427,6 +507,10 @@ async function loadSettings() {
         ? JSON.stringify(overrides, null, 2)
         : '';
     $('#set-caps-msg').textContent = '';
+    // Token optimization settings
+    $('#set-rtk').value = String(s.RTK_ENABLED !== false);
+    $('#set-caveman').value = String(s.CAVEMAN_ENABLED !== false);
+    $('#set-caveman-level').value = s.CAVEMAN_LEVEL || 'full';
 }
 $('#set-save').addEventListener('click', async () => {
     const patch = {
@@ -473,6 +557,21 @@ $('#set-caps-reset').addEventListener('click', async () => {
     await loadOverview();
 });
 
+$('#set-token-save').addEventListener('click', async () => {
+    const patch = {
+        RTK_ENABLED: $('#set-rtk').value === 'true',
+        CAVEMAN_ENABLED: $('#set-caveman').value === 'true',
+        CAVEMAN_LEVEL: $('#set-caveman-level').value
+    };
+    try {
+        await api('PUT', '/api/settings', patch);
+        toast('Token optimization settings saved');
+        loadSettings();
+    } catch (e) {
+        toast(e.message, true);
+    }
+});
+
 // ---- helpers ----
 function esc(s) {
     return String(s ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
@@ -484,6 +583,18 @@ function fmtTime(ts) {
 }
 function fmtTimeShort(ts) {
     return new Date(ts).toISOString().slice(11, 19);
+}
+function creditChip(entry = {}) {
+    const status = entry.credit_status || 'unknown';
+    const labels = {
+        available: 'credit ok',
+        empty: 'credit empty',
+        limited: 'credit limited',
+        unknown: 'credit unknown'
+    };
+    const remaining = entry.credit_remaining;
+    const text = Number.isFinite(remaining) ? `${remaining} left` : (labels[status] || labels.unknown);
+    return `<span class="credit-chip ${esc(status)}">${esc(text)}</span>`;
 }
 function modeName(m) {
     return { 1: 'Unlucid', 2: 'CodeBuddy', 3: 'Both' }[m] || `mode ${m}`;
@@ -761,6 +872,90 @@ function escapeHtml(s) {
         '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'
     }[c]));
 }
+
+// ---- CONTENT FILTER ----
+async function loadFilters() {
+    try {
+        const r = await api('GET', '/api/filters');
+        const filters = r.filters || [];
+        $('#filter-count').textContent = `${filters.filter(f => f.active).length} active / ${filters.length} total`;
+        const tbody = $('#filter-tbody');
+        tbody.innerHTML = '';
+        for (const f of filters) {
+            const tr = document.createElement('tr');
+            tr.innerHTML = `
+                <td><code>${escapeHtml(f.pattern.length > 80 ? f.pattern.slice(0, 80) + '…' : f.pattern)}</code></td>
+                <td>${f.replacement === '' ? '<em class="muted">remove</em>' : '<code>' + escapeHtml(f.replacement) + '</code>'}</td>
+                <td>${f.target}</td>
+                <td><button class="btn btn-sm ${f.active ? 'primary' : ''}" data-toggle="${f.id}">${f.active ? 'ON' : 'OFF'}</button></td>
+                <td>
+                    <button class="btn btn-sm" data-edit="${f.id}" data-pattern="${escapeHtml(f.pattern)}" data-replacement="${escapeHtml(f.replacement)}" data-target="${f.target}">✎</button>
+                    <button class="btn btn-sm danger" data-del="${f.id}">✕</button>
+                </td>
+            `;
+            tbody.appendChild(tr);
+        }
+        // Bind toggle buttons
+        tbody.querySelectorAll('[data-toggle]').forEach(btn => {
+            btn.addEventListener('click', async () => {
+                try {
+                    await api('POST', `/api/filters/${btn.dataset.toggle}/toggle`);
+                    loadFilters();
+                } catch (e) { toast(e.message, true); }
+            });
+        });
+        // Bind delete buttons
+        tbody.querySelectorAll('[data-del]').forEach(btn => {
+            btn.addEventListener('click', async () => {
+                if (!confirm('Delete this filter rule?')) return;
+                try {
+                    await api('DELETE', `/api/filters/${btn.dataset.del}`);
+                    toast('Filter removed');
+                    loadFilters();
+                } catch (e) { toast(e.message, true); }
+            });
+        });
+        // Bind edit buttons
+        tbody.querySelectorAll('[data-edit]').forEach(btn => {
+            btn.addEventListener('click', () => {
+                $('#filter-pattern').value = btn.dataset.pattern;
+                $('#filter-replacement').value = btn.dataset.replacement;
+                $('#filter-target').value = btn.dataset.target;
+                // Store edit id for save
+                $('#filter-add').dataset.editId = btn.dataset.edit;
+                $('#filter-add').textContent = 'Update rule';
+            });
+        });
+    } catch (e) {
+        toast(e.message, true);
+    }
+}
+
+$('#filter-add').addEventListener('click', async () => {
+    const pattern = $('#filter-pattern').value;
+    const replacement = $('#filter-replacement').value;
+    const target = $('#filter-target').value;
+    const editId = $('#filter-add').dataset.editId;
+
+    if (!pattern) return toast('Pattern is required', true);
+
+    try {
+        if (editId) {
+            await api('PUT', `/api/filters/${editId}`, { pattern, replacement, target });
+            toast('Filter updated');
+            delete $('#filter-add').dataset.editId;
+            $('#filter-add').textContent = 'Add rule';
+        } else {
+            await api('POST', '/api/filters', { pattern, replacement, target });
+            toast('Filter added');
+        }
+        $('#filter-pattern').value = '';
+        $('#filter-replacement').value = '';
+        loadFilters();
+    } catch (e) {
+        toast(e.message, true);
+    }
+});
 
 // ---- init ----
 loadOverview();

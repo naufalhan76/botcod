@@ -63,7 +63,13 @@ const DEFAULTS = {
     // Persisted user overrides for per-model capabilities (variants, limit,
     // modalities). Empty by default; the Settings tab merges these on top of
     // DEFAULT_MODEL_CAPS via buildEffectiveCaps().
-    MODEL_CAPS_OVERRIDES: {}
+    MODEL_CAPS_OVERRIDES: {},
+    // RTK Token Saver — compress tool_result content before forwarding (default ON)
+    RTK_ENABLED: true,
+    // Caveman Mode — inject terse system prompt to reduce output tokens (default ON)
+    CAVEMAN_ENABLED: true,
+    // Caveman intensity: 'lite' | 'full' | 'ultra'
+    CAVEMAN_LEVEL: 'full'
 };
 
 export { CODEBUDDY_MODELS, KIRO_MODELS };

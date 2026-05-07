@@ -3,7 +3,7 @@
  * and SSE log streaming for the dashboard.
  */
 import { randomUUID } from 'crypto';
-import { runBatch } from '../../lib/runner.js';
+import { requestAbort, runBatch } from '../../lib/runner.js';
 import { loadLines } from '../../lib/utils.js';
 import { getConfig } from './config.js';
 import { addKiroCred } from './providers/kiro/credentials.js';
@@ -29,8 +29,17 @@ class Job {
         this.logs = []; // [{ ts, email, line }]
         this.maxLogs = 5000;
         this.subscribers = new Set();
-        this.abortFlag = { aborted: false };
+        this.abortFlag = { aborted: false, reason: null, _listeners: new Set() };
         this._emitter = null;
+    }
+
+    pushLog(email, line) {
+        const entry = { ts: Date.now(), email, line };
+        this.logs.push(entry);
+        if (this.logs.length > this.maxLogs) this.logs.shift();
+        for (const sub of this.subscribers) {
+            try { sub.write(`data: ${JSON.stringify({ type: 'log', ...entry })}\n\n`); } catch {}
+        }
     }
 
     start() {
@@ -48,11 +57,7 @@ class Job {
                     addKiroCred(cred);
                 } catch (e) {
                     // surface the failure into the job log
-                    const entry = { ts: Date.now(), email: null, line: `[!] Failed to persist Kiro cred: ${e.message}` };
-                    this.logs.push(entry);
-                    for (const sub of this.subscribers) {
-                        try { sub.write(`data: ${JSON.stringify({ type: 'log', ...entry })}\n\n`); } catch {}
-                    }
+                    this.pushLog(null, `[!] Failed to persist Kiro cred: ${e.message}`);
                     throw e;
                 }
             },
@@ -60,12 +65,7 @@ class Job {
         });
 
         this._emitter.on('log', ({ email, line }) => {
-            const entry = { ts: Date.now(), email, line };
-            this.logs.push(entry);
-            if (this.logs.length > this.maxLogs) this.logs.shift();
-            for (const sub of this.subscribers) {
-                try { sub.write(`data: ${JSON.stringify({ type: 'log', ...entry })}\n\n`); } catch {}
-            }
+            this.pushLog(email, line);
         });
 
         this._emitter.on('progress', (p) => {
@@ -88,7 +88,14 @@ class Job {
     }
 
     abort() {
-        this.abortFlag.aborted = true;
+        if (this.status !== 'running') return false;
+        this.status = 'aborting';
+        requestAbort(this.abortFlag, 'Aborted by user');
+        this.pushLog(null, '[!] Abort requested. Closing active browsers and stopping workers...');
+        for (const sub of this.subscribers) {
+            try { sub.write(`data: ${JSON.stringify({ type: 'status', status: this.status })}\n\n`); } catch {}
+        }
+        return true;
     }
 
     subscribe(res) {
@@ -162,6 +169,5 @@ export function listJobs() {
 export function abortJob(id) {
     const j = _jobs.get(id);
     if (!j) return false;
-    j.abort();
-    return true;
+    return j.abort();
 }

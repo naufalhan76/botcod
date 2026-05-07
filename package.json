@@ -6,8 +6,14 @@
   "type": "module",
   "scripts": {
     "start": "node index.js",
+    "sambungin": "node server/index.js",
     "dev": "node server/index.js",
-    "server": "node server/index.js"
+    "server": "node server/index.js",
+    "build": "npm run build --prefix dashboard",
+    "postinstall": "cd dashboard && npm install"
+  },
+  "bin": {
+    "sambungin": "./bin/sambungin.js"
   },
   "keywords": [],
   "author": "",
