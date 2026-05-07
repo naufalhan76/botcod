@@ -1,0 +1,27 @@
+{
+  "active_plan": "C:\\Users\\colds\\Naufal\\botcod\\.sisyphus\\plans\\dashboard-revamp.md",
+  "started_at": "2026-05-07T03:47:57.425Z",
+  "session_ids": [
+    "ses_1ffa7f0eaffeeHpMfUvbMH1U7x",
+    "ses_1ff1383a3ffeDxo40HpiWOYvdG",
+    "ses_1ff1350a2ffe56ZXb0zf7zsxpP"
+  ],
+  "session_origins": {
+    "ses_1ffa7f0eaffeeHpMfUvbMH1U7x": "direct",
+    "ses_1ff1383a3ffeDxo40HpiWOYvdG": "appended",
+    "ses_1ff1350a2ffe56ZXb0zf7zsxpP": "appended"
+  },
+  "plan_name": "dashboard-revamp",
+  "agent": "atlas",
+  "task_sessions": {
+    "todo:1": {
+      "task_key": "todo:1",
+      "task_label": "1",
+      "task_title": "Next.js Project Scaffolding + Config",
+      "session_id": "ses_1ff105376ffeZ10SjHSKgu90YC",
+      "agent": "Sisyphus-Junior",
+      "category": "unspecified-high",
+      "updated_at": "2026-05-07T05:43:01.292Z"
+    }
+  }
+}

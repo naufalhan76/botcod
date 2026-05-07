@@ -4,7 +4,9 @@ proxies.txt
 codebuddy_keys.txt
 server/state.json
 server/settings.json
+server/history.json
 .DS_Store
 *.log
 kiro_credentials.json
 server/tempmail.json
+server/filters.json

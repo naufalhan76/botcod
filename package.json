@@ -6,8 +6,14 @@
   "type": "module",
   "scripts": {
     "start": "node index.js",
-    "dev": "node server/index.js",
-    "server": "node server/index.js"
+    "sambungin": "concurrently --names \"api,dashboard\" --prefix-colors \"cyan,magenta\" \"node server/index.js\" \"npm run dev --prefix dashboard\"",
+    "dev": "concurrently --names \"api,dashboard\" --prefix-colors \"cyan,magenta\" \"node server/index.js\" \"npm run dev --prefix dashboard\"",
+    "server": "node server/index.js",
+    "dashboard": "npm run dev --prefix dashboard",
+    "build:dashboard": "npm run build --prefix dashboard"
+  },
+  "bin": {
+    "sambungin": "./bin/sambungin.js"
   },
   "keywords": [],
   "author": "",
@@ -20,5 +26,8 @@
     "imapflow": "^1.3.3",
     "playwright-core": "^1.59.1",
     "readline-sync": "^1.4.10"
+  },
+  "devDependencies": {
+    "concurrently": "^9.2.1"
   }
 }
