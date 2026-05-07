@@ -21,14 +21,21 @@ const cfg = getConfig();
 const app = express();
 app.use(express.json({ limit: '10mb' }));
 
-// Static dashboard assets (HTML, CSS, JS) are always public so the page
-// always renders. Authentication only gates the sensitive backend at /api/*
-// below. /v1/* (OpenAI-compatible endpoints) is always public so OpenCode
-// and other plain OpenAI clients work without custom headers.
-app.use(express.static(path.join(__dirname, 'public')));
-app.get('/', (req, res) => {
-    res.sendFile(path.join(__dirname, 'public', 'index.html'));
-});
+// Serve new Next.js dashboard (static export from dashboard/out/).
+// Falls back to legacy vanilla dashboard if new build doesn't exist.
+import fs from 'fs';
+const dashboardOut = path.resolve(__dirname, '..', 'dashboard', 'out');
+const legacyPublic = path.join(__dirname, 'public');
+
+if (fs.existsSync(dashboardOut)) {
+    app.use(express.static(dashboardOut));
+} else {
+    console.warn('[server] dashboard/out/ not found — serving legacy dashboard from server/public/');
+    app.use(express.static(legacyPublic));
+}
+
+// Legacy dashboard still accessible at /legacy
+app.use('/legacy', express.static(legacyPublic));
 
 app.use('/v1', openaiRoutes);
 
@@ -41,6 +48,27 @@ app.use('/api', (req, res, next) => {
     res.status(401).json({ error: 'unauthorized' });
 });
 app.use('/api', apiRoutes);
+
+// SPA fallback: serve index.html for dashboard routes not matched by static files or API.
+// Next.js static export with trailingSlash creates /route/index.html for each page.
+// This fallback handles cases where the file doesn't exist (e.g. direct browser navigation).
+if (fs.existsSync(dashboardOut)) {
+    app.get('*', (req, res, next) => {
+        // Skip API and v1 routes
+        if (req.path.startsWith('/api') || req.path.startsWith('/v1') || req.path.startsWith('/legacy')) {
+            return next();
+        }
+        const indexFile = path.join(dashboardOut, req.path, 'index.html');
+        const rootIndex = path.join(dashboardOut, 'index.html');
+        if (fs.existsSync(indexFile)) {
+            res.sendFile(indexFile);
+        } else if (fs.existsSync(rootIndex)) {
+            res.sendFile(rootIndex);
+        } else {
+            next();
+        }
+    });
+}
 
 app.use((err, req, res, next) => {
     console.error('[server] error:', err);

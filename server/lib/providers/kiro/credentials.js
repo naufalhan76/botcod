@@ -79,6 +79,8 @@ export function listKiroCreds() {
         auth: c.auth,
         has_client_secret: !!c.clientSecret,
         status: effectiveStatus(c),
+        credit_status: creditStatus(c, effectiveStatus(c)),
+        credit_remaining: null,
         last_used_at: c.lastUsedAt || 0,
         cooldown_until: c.cooldownUntil || 0,
         usage_count: c.usageCount || 0,
@@ -86,6 +88,15 @@ export function listKiroCreds() {
         expires_at: c.expiresAt || 0,
         last_error: c.lastError || null
     }));
+}
+
+function creditStatus(c = {}, status = 'active') {
+    const err = String(c.lastError || '').toLowerCase();
+    if (err.includes('quota') || err.includes('insufficient') || err.includes('credit')) return 'empty';
+    if (status === 'dead') return 'empty';
+    if (status === 'cooldown') return 'limited';
+    if ((c.usageCount || 0) > 0 || c.lastUsedAt) return 'available';
+    return 'unknown';
 }
 
 export function summaryKiro() {
