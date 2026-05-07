@@ -100,10 +100,8 @@ function applyToString(str, target) {
     const active = _filters.filter(f => f.active && (f.target === target || f.target === 'both'));
     let result = str;
     for (const rule of active) {
-        // Replace ALL occurrences (not just first)
-        while (result.includes(rule.pattern)) {
-            result = result.replace(rule.pattern, rule.replacement);
-        }
+        // Use split+join for safe global replacement (no infinite loop risk)
+        result = result.split(rule.pattern).join(rule.replacement);
     }
     return result;
 }
@@ -154,9 +152,7 @@ export function applyHeaderFilters(headers) {
             }
             // Filter header values
             if (typeof filteredValue === 'string') {
-                while (filteredValue.includes(rule.pattern)) {
-                    filteredValue = filteredValue.replace(rule.pattern, rule.replacement);
-                }
+                filteredValue = filteredValue.split(rule.pattern).join(rule.replacement);
             }
         }
 
