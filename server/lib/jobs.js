@@ -14,12 +14,13 @@ const VALID_MODES = new Set([1, 2, 3, 4, 5, 6, 7]);
 const _jobs = new Map(); // id -> Job
 
 class Job {
-    constructor({ accounts, proxies, mode, headless, limit, concurrency }) {
+    constructor({ accounts, proxies, mode, headless, browserEngine, limit, concurrency }) {
         this.id = randomUUID();
         this.startedAt = Date.now();
         this.finishedAt = null;
         this.mode = mode;
         this.headless = headless;
+        this.browserEngine = browserEngine || 'camoufox';
         this.concurrency = concurrency;
         this.totalRequested = accounts.length;
         this.accounts = limit && limit > 0 ? accounts.slice(0, limit) : accounts;
@@ -45,13 +46,16 @@ class Job {
     start() {
         const cfg = getConfig();
         const keysOutputFile = path.resolve(cfg.KEYS_FILE);
+        const failedOutputDir = path.dirname(keysOutputFile);
         this._emitter = runBatch({
             accounts: this.accounts,
             proxies: this.proxies,
             mode: this.mode,
             headless: this.headless,
+            browserEngine: this.browserEngine,
             concurrency: this.concurrency,
             keysOutputFile,
+            failedOutputDir,
             onKiroCred: async (cred) => {
                 try {
                     addKiroCred(cred);
@@ -75,12 +79,19 @@ class Job {
             }
         });
 
-        this._emitter.on('done', ({ results, error }) => {
+        this._emitter.on('done', ({ results, error, failedFiles }) => {
             this.finishedAt = Date.now();
             this.status = error ? 'error' : (this.abortFlag.aborted ? 'aborted' : 'completed');
             if (error) this.error = error;
+            this.failedFiles = failedFiles || {};
+            if (Object.keys(this.failedFiles).length > 0) {
+                const summary = Object.entries(this.failedFiles)
+                    .map(([file, info]) => `${file} (${info.count})`)
+                    .join(', ');
+                this.pushLog(null, `[FAILED] Saved failed accounts: ${summary}`);
+            }
             for (const sub of this.subscribers) {
-                try { sub.write(`data: ${JSON.stringify({ type: 'done', status: this.status, error })}\n\n`); } catch {}
+                try { sub.write(`data: ${JSON.stringify({ type: 'done', status: this.status, error, failedFiles: this.failedFiles })}\n\n`); } catch {}
                 try { sub.end(); } catch {}
             }
             this.subscribers.clear();
@@ -124,6 +135,7 @@ class Job {
             finishedAt: this.finishedAt,
             mode: this.mode,
             headless: this.headless,
+            browserEngine: this.browserEngine,
             concurrency: this.concurrency,
             status: this.status,
             total: this.accounts.length,
@@ -132,17 +144,21 @@ class Job {
             failed: fail,
             keysObtained: keys,
             kiroCredsObtained: kiroCreds,
-            error: this.error || null
+            error: this.error || null,
+            failedFiles: this.failedFiles || {}
         };
     }
 }
 
-export function createJob({ mode, headless = true, limit = 0, concurrency = 1, accountsList = null, proxiesList = null }) {
+export function createJob({ mode, headless = true, browserEngine = 'camoufox', limit = 0, concurrency = 1, accountsList = null, proxiesList = null }) {
     if (!VALID_MODES.has(mode)) {
         throw new Error('mode must be one of: 1=Unlucid, 2=CodeBuddy, 4=Kiro, or any combination (3,5,6,7)');
     }
     concurrency = Math.max(1, Math.floor(Number(concurrency) || 1));
     if (concurrency > 8) throw new Error('concurrency capped at 8 to keep VM/browser memory sane.');
+
+    const validEngines = ['camoufox', 'cloakbrowser'];
+    if (!validEngines.includes(browserEngine)) browserEngine = 'camoufox';
 
     const cfg = getConfig();
     const accounts = accountsList ?? loadLines(cfg.ACCOUNTS_FILE);
@@ -154,7 +170,7 @@ export function createJob({ mode, headless = true, limit = 0, concurrency = 1, a
         throw new Error(`concurrency=${concurrency} requires at least ${concurrency} proxies (have ${proxies.length}).`);
     }
 
-    const job = new Job({ accounts, proxies, mode, headless, limit, concurrency });
+    const job = new Job({ accounts, proxies, mode, headless, browserEngine, limit, concurrency });
     _jobs.set(job.id, job);
     job.start();
     return job;

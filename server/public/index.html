@@ -175,6 +175,13 @@
                     </select>
                     <span class="muted">Kiro requires <code>kiro-cli</code> + <code>sqlite3</code> in PATH on this machine.</span>
                 </label>
+                <label>Browser Engine
+                    <select id="run-browser-engine">
+                        <option value="camoufox" selected>Camoufox (Firefox)</option>
+                        <option value="cloakbrowser">CloakBrowser (Chromium)</option>
+                    </select>
+                    <span class="muted">CloakBrowser uses ~60% less RAM but requires first-run binary download (~200MB).</span>
+                </label>
                 <label>Headless
                     <select id="run-headless">
                         <option value="true" selected>Yes (no window)</option>

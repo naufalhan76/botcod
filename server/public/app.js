@@ -380,10 +380,11 @@ async function loadJobs() {
 $('#run-start').addEventListener('click', async () => {
     const mode = parseInt($('#run-mode').value);
     const headless = $('#run-headless').value === 'true';
+    const browserEngine = $('#run-browser-engine').value;
     const limit = parseInt($('#run-limit').value) || 0;
     const concurrency = parseInt($('#run-concurrency').value) || 1;
     try {
-        const job = await api('POST', '/api/jobs', { mode, headless, limit, concurrency });
+        const job = await api('POST', '/api/jobs', { mode, headless, browserEngine, limit, concurrency });
         toast(`Job started: ${job.id.slice(0, 8)} (${concurrency}× parallel)`);
         attachJobStream(job.id);
         $('#run-abort').disabled = false;
