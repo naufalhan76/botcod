@@ -55,6 +55,15 @@ function effectiveStatus(entry, now = Date.now()) {
     return s.status || 'active';
 }
 
+function creditStatus(s = {}, status = 'active') {
+    const err = String(s.last_error || '').toLowerCase();
+    if (err.includes('quota') || err.includes('insufficient') || err.includes('credit')) return 'empty';
+    if (status === 'dead') return 'empty';
+    if (status === 'cooldown') return 'limited';
+    if ((s.usage_count || 0) > 0 || s.last_used_at) return 'available';
+    return 'unknown';
+}
+
 export function listPool() {
     const cfg = getConfig();
     const now = Date.now();
@@ -65,6 +74,8 @@ export function listPool() {
             email: e.email,
             key_masked: `${e.key.slice(0, 8)}…${e.key.slice(-6)}`,
             status,
+            credit_status: creditStatus(s, status),
+            credit_remaining: null,
             last_used_at: s.last_used_at || 0,
             cooldown_until: s.cooldown_until || 0,
             usage_count: s.usage_count || 0,

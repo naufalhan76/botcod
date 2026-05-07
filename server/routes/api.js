@@ -45,6 +45,11 @@ import {
     listMessages, getMessage, extractCode,
     pollAllInboxes, tempmailSummary
 } from '../lib/tempmail.js';
+import { listHistory, clearHistory, trackAiRequest } from '../lib/history.js';
+import { getRequestStats, getTokenStats, getPerformanceStats, getProviderHealth } from '../lib/stats.js';
+import {
+    listFilters, addFilter, updateFilter, removeFilter, toggleFilter
+} from '../lib/contentFilter.js';
 
 const router = Router();
 
@@ -57,7 +62,7 @@ router.get('/overview', (req, res) => {
         accounts: loadLines(cfg.ACCOUNTS_FILE).length,
         proxies: loadLines(cfg.PROXIES_FILE).length,
         jobs_total: listJobs().length,
-        jobs_running: listJobs().filter(j => j.status === 'running').length,
+        jobs_running: listJobs().filter(j => ['running', 'aborting'].includes(j.status)).length,
         config: {
             UPSTREAM_BASE: cfg.UPSTREAM_BASE,
             COOLDOWN_MS: cfg.COOLDOWN_MS,
@@ -213,6 +218,14 @@ router.post('/tempmail/poll', async (req, res) => {
     res.json(await pollAllInboxes());
 });
 
+// ---- AI request history ----
+router.get('/history', (req, res) => {
+    res.json(listHistory({ limit: req.query.limit }));
+});
+router.delete('/history', (req, res) => {
+    res.json(clearHistory());
+});
+
 // ---- Pool ----
 router.get('/pool', (req, res) => res.json({ summary: summary(), entries: listPool() }));
 router.post('/pool/reload', (req, res) => res.json({ count: reloadKeys() }));
@@ -333,11 +346,14 @@ router.get('/settings', (req, res) => {
         MAX_ROTATIONS_PER_REQUEST: cfg.MAX_ROTATIONS_PER_REQUEST,
         MODEL_CAPS: getEffectiveModelCaps(),
         MODEL_CAPS_OVERRIDES: cfg.MODEL_CAPS_OVERRIDES || {},
+        RTK_ENABLED: cfg.RTK_ENABLED !== false,
+        CAVEMAN_ENABLED: cfg.CAVEMAN_ENABLED !== false,
+        CAVEMAN_LEVEL: cfg.CAVEMAN_LEVEL || 'full',
         PORT: cfg.PORT
     });
 });
 router.put('/settings', (req, res) => {
-    const allowed = ['COOLDOWN_MS', 'EXPOSED_MODELS', 'MAX_ROTATIONS_PER_REQUEST', 'MODEL_CAPS_OVERRIDES'];
+    const allowed = ['COOLDOWN_MS', 'EXPOSED_MODELS', 'MAX_ROTATIONS_PER_REQUEST', 'MODEL_CAPS_OVERRIDES', 'RTK_ENABLED', 'CAVEMAN_ENABLED', 'CAVEMAN_LEVEL'];
     const patch = {};
     for (const k of allowed) {
         if (k in (req.body || {})) patch[k] = req.body[k];
@@ -355,6 +371,19 @@ router.put('/settings', (req, res) => {
 // ---- Quick test chat (proxies through router) ----
 router.post('/test-chat', async (req, res) => {
     const { model = 'auto-chat', prompt = 'Reply with just OK' } = req.body || {};
+    const provider = providerForModel(model);
+    const history = trackAiRequest(req, res, {
+        source: 'dashboard-test',
+        endpoint: 'POST /api/test-chat',
+        model,
+        provider
+    });
+    history.set({
+        prompt_preview: String(prompt || '').slice(0, 400),
+        message_count: 2,
+        stream: false,
+        request: { model, prompt }
+    });
     const body = {
         model,
         messages: [
@@ -363,9 +392,56 @@ router.post('/test-chat', async (req, res) => {
         ],
         stream: false
     };
-    const provider = providerForModel(model);
     if (provider === 'kiro') return kiroChatCompletion(body, res);
     return streamChatCompletion(body, res);
+});
+
+// ---- Content Filters ----
+router.get('/filters', (req, res) => {
+    res.json({ filters: listFilters() });
+});
+router.post('/filters', (req, res) => {
+    try {
+        const entry = addFilter(req.body || {});
+        res.json(entry);
+    } catch (e) {
+        res.status(400).json({ error: e.message });
+    }
+});
+router.put('/filters/:id', (req, res) => {
+    try {
+        const entry = updateFilter(req.params.id, req.body || {});
+        res.json(entry);
+    } catch (e) {
+        res.status(400).json({ error: e.message });
+    }
+});
+router.post('/filters/:id/toggle', (req, res) => {
+    try {
+        const entry = toggleFilter(req.params.id);
+        res.json(entry);
+    } catch (e) {
+        res.status(400).json({ error: e.message });
+    }
+});
+router.delete('/filters/:id', (req, res) => {
+    const ok = removeFilter(req.params.id);
+    if (!ok) return res.status(404).json({ error: 'filter not found' });
+    res.json({ ok: true });
+});
+
+// ---- Stats (chart data) ----
+router.get('/stats/requests', (req, res) => {
+    res.json(getRequestStats(req.query.period));
+});
+router.get('/stats/tokens', (req, res) => {
+    res.json(getTokenStats(req.query.period));
+});
+router.get('/stats/performance', (req, res) => {
+    res.json(getPerformanceStats(req.query.period));
+});
+router.get('/stats/health', (req, res) => {
+    res.json(getProviderHealth());
 });
 
 export default router;

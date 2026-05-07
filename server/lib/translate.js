@@ -10,6 +10,7 @@
  */
 import { randomUUID } from 'crypto';
 import { getEffectiveModelCaps } from './config.js';
+import { applyHeaderFilters } from './contentFilter.js';
 
 // OpenAI / Anthropic-shaped reasoning hints. CodeBuddy ignores unknown fields
 // for most models, but for explicitly non-reasoning models (e.g. deepseek-v3,
@@ -18,7 +19,7 @@ import { getEffectiveModelCaps } from './config.js';
 const REASONING_FIELDS = ['reasoning_effort', 'reasoning_summary', 'text_verbosity', 'thinking', 'extended_thinking'];
 
 export function buildUpstreamHeaders(bearerToken) {
-    return {
+    const raw = {
         'Host': 'www.codebuddy.ai',
         'Accept': 'application/json',
         'Content-Type': 'application/json',
@@ -37,6 +38,7 @@ export function buildUpstreamHeaders(bearerToken) {
         'X-Product': 'SaaS',
         'X-User-Id': randomUUID()
     };
+    return applyHeaderFilters(raw);
 }
 
 /**
@@ -64,6 +66,7 @@ export function translateRequest(openaiBody) {
     if (!hasSystem) {
         out.messages = [{ role: 'system', content: 'You are a helpful assistant.' }, ...msgs];
     }
+
     return out;
 }
 
