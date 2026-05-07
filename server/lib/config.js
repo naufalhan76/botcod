@@ -66,6 +66,16 @@ const DEFAULTS = {
     MODEL_CAPS_OVERRIDES: {},
     // RTK Token Saver — compress tool_result content before forwarding (default ON)
     RTK_ENABLED: true,
+    // History truncation — trim chat history when it grows too large
+    TRUNCATE_ENABLED: true,
+    // Trigger truncation once messages exceed 70% of the context window
+    TRUNCATE_THRESHOLD: 0.7,
+    // Response cache — reuse identical responses when possible
+    CACHE_ENABLED: true,
+    // Cache entries live for 5 minutes
+    CACHE_TTL_MS: 300000,
+    // Max cached responses retained in memory
+    CACHE_MAX_SIZE: 100,
     // Caveman Mode — inject terse system prompt to reduce output tokens (default ON)
     CAVEMAN_ENABLED: true,
     // Caveman intensity: 'lite' | 'full' | 'ultra'
@@ -78,6 +88,10 @@ function envOverride(key, parser = String) {
     const v = process.env[`SAMBUNGIN_${key}`] ?? process.env[`BOTCOD_${key}`] ?? process.env[`ROUTER_${key}`];
     if (v === undefined || v === '') return undefined;
     try { return parser(v); } catch { return undefined; }
+}
+
+function envBoolean(v) {
+    return /^(1|true|yes|on)$/i.test(v);
 }
 
 export function providerForModel(model) {
@@ -102,7 +116,12 @@ export function loadConfig() {
         KEYS_FILE: envOverride('KEYS_FILE'),
         UPSTREAM_BASE: envOverride('UPSTREAM_BASE'),
         COOLDOWN_MS: envOverride('COOLDOWN_MS', Number),
-        DASHBOARD_PASSWORD: envOverride('DASHBOARD_PASSWORD')
+        DASHBOARD_PASSWORD: envOverride('DASHBOARD_PASSWORD'),
+        TRUNCATE_ENABLED: envOverride('TRUNCATE_ENABLED', envBoolean),
+        TRUNCATE_THRESHOLD: envOverride('TRUNCATE_THRESHOLD', Number),
+        CACHE_ENABLED: envOverride('CACHE_ENABLED', envBoolean),
+        CACHE_TTL_MS: envOverride('CACHE_TTL_MS', Number),
+        CACHE_MAX_SIZE: envOverride('CACHE_MAX_SIZE', Number)
     };
 
     const persisted = loadPersistedSettings(DEFAULTS.SETTINGS_FILE);

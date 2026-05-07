@@ -142,6 +142,8 @@ export function trackAiRequest(req, res, meta = {}) {
         trackRequest({
             model: current.model,
             provider: current.provider,
+            tokensSaved: Number(current.tokens_saved) || 0,
+            cacheHit: current.cache_hit,
             promptTokens: 0, // TODO: extract from response if available
             completionTokens: 0,
             latencyMs: durationMs,

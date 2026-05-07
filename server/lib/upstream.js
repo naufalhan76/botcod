@@ -106,6 +106,7 @@ export async function streamChatCompletion(openaiBody, res, opts = {}) {
             try {
                 const fullText = await upstream.text();
                 const aggregated = aggregateNonStream(fullText);
+                if (opts?.onNonStreamResponse) opts.onNonStreamResponse(aggregated);
                 res.writeHead(200, {
                     'Content-Type': 'application/json',
                     'Cache-Control': 'no-store'

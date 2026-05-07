@@ -388,13 +388,18 @@ router.get('/settings', (req, res) => {
         MODEL_CAPS: getEffectiveModelCaps(),
         MODEL_CAPS_OVERRIDES: cfg.MODEL_CAPS_OVERRIDES || {},
         RTK_ENABLED: cfg.RTK_ENABLED !== false,
+        TRUNCATE_ENABLED: cfg.TRUNCATE_ENABLED !== false,
+        TRUNCATE_THRESHOLD: cfg.TRUNCATE_THRESHOLD,
+        CACHE_ENABLED: cfg.CACHE_ENABLED !== false,
+        CACHE_TTL_MS: cfg.CACHE_TTL_MS,
+        CACHE_MAX_SIZE: cfg.CACHE_MAX_SIZE,
         CAVEMAN_ENABLED: cfg.CAVEMAN_ENABLED !== false,
         CAVEMAN_LEVEL: cfg.CAVEMAN_LEVEL || 'full',
         PORT: cfg.PORT
     });
 });
 router.put('/settings', (req, res) => {
-    const allowed = ['COOLDOWN_MS', 'EXPOSED_MODELS', 'MAX_ROTATIONS_PER_REQUEST', 'MODEL_CAPS_OVERRIDES', 'RTK_ENABLED', 'CAVEMAN_ENABLED', 'CAVEMAN_LEVEL'];
+    const allowed = ['COOLDOWN_MS', 'EXPOSED_MODELS', 'MAX_ROTATIONS_PER_REQUEST', 'MODEL_CAPS_OVERRIDES', 'RTK_ENABLED', 'TRUNCATE_ENABLED', 'TRUNCATE_THRESHOLD', 'CACHE_ENABLED', 'CACHE_TTL_MS', 'CACHE_MAX_SIZE', 'CAVEMAN_ENABLED', 'CAVEMAN_LEVEL'];
     const patch = {};
     for (const k of allowed) {
         if (k in (req.body || {})) patch[k] = req.body[k];

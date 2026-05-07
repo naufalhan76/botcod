@@ -196,7 +196,7 @@ function frameToOpenAIDelta(frame, ctx) {
  * Execute a chat completion against Kiro upstream, writing OpenAI-shaped
  * response (streaming or aggregated) to `res`.
  */
-export async function kiroChatCompletion(openaiBody, res) {
+export async function kiroChatCompletion(openaiBody, res, opts = {}) {
     const cfg = getConfig();
     const maxRotations = cfg.MAX_ROTATIONS_PER_REQUEST || 5;
     const triedIdx = [];
@@ -297,6 +297,7 @@ export async function kiroChatCompletion(openaiBody, res) {
         try {
             const buf = Buffer.from(await upstream.arrayBuffer());
             const aggregated = aggregateNonStream(buf, ctx);
+            if (opts?.onNonStreamResponse) opts.onNonStreamResponse(aggregated);
             res.writeHead(200, { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' });
             res.end(JSON.stringify(aggregated));
         } catch (err) {
