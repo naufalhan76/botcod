@@ -3,6 +3,7 @@ export interface Job {
   status: 'running' | 'completed' | 'error' | 'aborting' | 'aborted'
   mode: number
   headless: boolean
+  browserEngine: 'camoufox' | 'cloakbrowser'
   concurrency: number
   total: number
   processed: number

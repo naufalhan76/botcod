@@ -22,7 +22,7 @@ export function useJob(id: string) {
 export function useCreateJob() {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: (body: { mode: number; headless: boolean; limit: number; concurrency: number }) =>
+    mutationFn: (body: { mode: number; headless: boolean; browserEngine: string; limit: number; concurrency: number }) =>
       apiFetch("/api/jobs", { method: "POST", body: JSON.stringify(body) }),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["jobs"] });
