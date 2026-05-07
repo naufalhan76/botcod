@@ -41,10 +41,10 @@ const BOT_MODES = [
   { value: '4', label: 'Kiro only' },
 ]
 
-const RUNNING_STATUSES = new Set<Job['status']>(['pending', 'running', 'aborting'])
+const RUNNING_STATUSES = new Set<Job['status']>(['running', 'aborting'])
 
 function getStatusVariant(status: Job['status']) {
-  if (status === 'done') return 'default' as const
+  if (status === 'completed') return 'default' as const
   if (status === 'error' || status === 'aborted') return 'destructive' as const
   if (status === 'running') return 'secondary' as const
   return 'outline' as const
@@ -196,9 +196,9 @@ export default function RunBotPage() {
                       <span className="text-xs text-muted-foreground">Mode {job.mode}</span>
                     </div>
                     <div className="flex flex-wrap gap-x-4 gap-y-1 text-xs text-muted-foreground">
-                      <span>{job.progress.done}/{job.progress.total} done</span>
-                      <span>{job.progress.success} success</span>
-                      <span>{job.progress.fail} failed</span>
+                      <span>{job.processed}/{job.total} done</span>
+                      <span>{job.success} success</span>
+                      <span>{job.failed} failed</span>
                       <span>{job.concurrency} concurrent</span>
                     </div>
                   </div>

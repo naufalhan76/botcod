@@ -1,18 +1,28 @@
 export interface Job {
   id: string
-  status: 'pending' | 'running' | 'done' | 'error' | 'aborting' | 'aborted'
+  status: 'running' | 'completed' | 'error' | 'aborting' | 'aborted'
   mode: number
   headless: boolean
-  limit: number
   concurrency: number
-  progress: { done: number; total: number; success: number; fail: number }
-  createdAt: string
-  startedAt: string | null
-  finishedAt: string | null
+  total: number
+  processed: number
+  success: number
+  failed: number
+  keysObtained: number
+  kiroCredsObtained: number
+  error: string | null
+  startedAt: number
+  finishedAt: number | null
+}
+
+export interface JobLog {
+  ts: number
+  email: string | null
+  line: string
 }
 
 export interface JobDetail extends Job {
-  recentLogs: string[]
+  recentLogs: JobLog[]
 }
 
 export interface JobsResponse {
