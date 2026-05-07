@@ -60,6 +60,9 @@ async function main() {
         process.exit(1);
     }
 
+    const engineChoice = readlineSync.question(chalk.yellow('Browser engine? (1=Camoufox, 2=CloakBrowser): '));
+    const browserEngine = engineChoice === '2' ? 'cloakbrowser' : 'camoufox';
+
     const browserMode = readlineSync.question(chalk.yellow('Run headless (no browser window)? (y/n): '));
     const headless = browserMode.toLowerCase() === 'y';
 
@@ -72,14 +75,15 @@ async function main() {
     console.log(chalk.cyan('\n[*] Starting automation...\n'));
     console.log(chalk.gray('═'.repeat(50)));
 
-    const emitter = runBatch({ accounts, proxies, mode, headless, keysOutputFile });
+    const failedOutputDir = path.resolve('.');
+    const emitter = runBatch({ accounts, proxies, mode, headless, browserEngine, keysOutputFile, failedOutputDir });
 
     emitter.on('log', ({ email, line }) => {
         const prefix = email ? chalk.gray(`[${email}] `) : '';
         console.log(prefix + line);
     });
 
-    await new Promise(resolve => emitter.once('done', ({ results }) => {
+    await new Promise(resolve => emitter.once('done', ({ results, failedFiles }) => {
         console.log(chalk.gray('\n' + '═'.repeat(50)));
         console.log(chalk.cyan('\n[*] =========== SUMMARY ==========='));
         const successful = results.filter(r => r.success);
@@ -94,6 +98,13 @@ async function main() {
             const okCount = results.filter(r => r.codebuddySuccess).length;
             const keys = results.filter(r => r.apiKey).length;
             console.log(chalk.cyan(`    [CODEBUDDY] Success: ${okCount}/${results.length} | Keys: ${keys}`));
+        }
+        if (failedFiles && Object.keys(failedFiles).length > 0) {
+            console.log(chalk.yellow('\n    [FAILED ACCOUNTS SAVED]'));
+            for (const [file, info] of Object.entries(failedFiles)) {
+                console.log(chalk.yellow(`    → ${file} (${info.count} account${info.count > 1 ? 's' : ''})`));
+            }
+            console.log(chalk.gray('    Format: email:password — bisa langsung dipake ulang sebagai accounts.txt'));
         }
         resolve();
     }));
