@@ -238,6 +238,22 @@ $('#kiro-reload').addEventListener('click', async () => {
     await api('POST', '/api/kiro/pool/reload');
     loadProviderPool();
 });
+$('#pool-purge-dead').addEventListener('click', async () => {
+    if (!confirm('Delete ALL dead CodeBuddy keys from the pool file? This cannot be undone.')) return;
+    try {
+        const r = await api('POST', '/api/pool/purge-dead');
+        toast(`Purged ${r.removed} dead key(s)`);
+        loadProviderPool();
+    } catch (e) { toast(e.message, true); }
+});
+$('#kiro-purge-dead').addEventListener('click', async () => {
+    if (!confirm('Delete ALL dead Kiro credentials? This cannot be undone.')) return;
+    try {
+        const r = await api('POST', '/api/kiro/pool/purge-dead');
+        toast(`Purged ${r.removed} dead credential(s)`);
+        loadProviderPool();
+    } catch (e) { toast(e.message, true); }
+});
 $('#kiro-add-btn').addEventListener('click', async () => {
     const payload = {
         label: $('#kiro-add-label').value.trim() || undefined,

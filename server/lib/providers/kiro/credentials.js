@@ -34,6 +34,7 @@ const ROOT = path.resolve(__dirname, '..', '..', '..', '..');
 let _store = { credentials: [], savedAt: 0 };
 let _file = path.join(ROOT, 'kiro_credentials.json');
 let _saveQueued = false;
+let _stickyCredIdx = null;
 
 function file() {
     const cfg = getConfig();
@@ -73,11 +74,13 @@ export function saveKiroStore() {
 }
 
 export function listKiroCreds() {
+    const now = Date.now();
     return _store.credentials.map((c, idx) => ({
         idx,
         label: c.label || `cred ${idx}`,
         auth: c.auth,
         has_client_secret: !!c.clientSecret,
+        hasAccessToken: !!(c.accessToken && c.expiresAt && c.expiresAt > now),
         status: effectiveStatus(c),
         credit_status: creditStatus(c, effectiveStatus(c)),
         credit_remaining: null,
@@ -153,6 +156,11 @@ export function addKiroCred(input) {
 
 export function removeKiroCred(idx) {
     if (idx < 0 || idx >= _store.credentials.length) return false;
+    if (_stickyCredIdx === idx) {
+        _stickyCredIdx = null;
+    } else if (_stickyCredIdx !== null && _stickyCredIdx > idx) {
+        _stickyCredIdx -= 1;
+    }
     _store.credentials.splice(idx, 1);
     saveKiroStore();
     return true;
@@ -170,11 +178,32 @@ export function setKiroCredStatus(idx, status) {
     return true;
 }
 
+export function purgeDeadKiroCreds() {
+    const before = _store.credentials.length;
+    _store.credentials = _store.credentials.filter(c => effectiveStatus(c) !== 'dead');
+    const removed = before - _store.credentials.length;
+    if (removed > 0) {
+        if (_stickyCredIdx !== null && _stickyCredIdx >= _store.credentials.length) {
+            _stickyCredIdx = null;
+        }
+        saveKiroStore();
+    }
+    return removed;
+}
+
 /**
  * Pick the next active credential. Prefers oldest lastUsedAt.
  */
 export function pickNextKiroCred(excludeIndices = []) {
     const now = Date.now();
+    if (_stickyCredIdx !== null) {
+        const stickyIdx = _stickyCredIdx;
+        const stickyCred = _store.credentials[stickyIdx];
+        if (stickyCred && !excludeIndices.includes(stickyIdx) && effectiveStatus(stickyCred, now) === 'active') {
+            return stickyIdx;
+        }
+        _stickyCredIdx = null;
+    }
     const candidates = [];
     for (let i = 0; i < _store.credentials.length; i++) {
         if (excludeIndices.includes(i)) continue;
@@ -183,8 +212,9 @@ export function pickNextKiroCred(excludeIndices = []) {
         candidates.push({ idx: i, last: c.lastUsedAt || 0 });
     }
     if (candidates.length === 0) return null;
-    candidates.sort((a, b) => a.last - b.last);
-    return candidates[0].idx;
+    candidates.sort((a, b) => (a.last - b.last) || (a.idx - b.idx));
+    _stickyCredIdx = candidates[0].idx;
+    return _stickyCredIdx;
 }
 
 export function markKiroUsed(idx) {
@@ -198,6 +228,7 @@ export function markKiroUsed(idx) {
 export function markKiroCooldown(idx, reason = 'rate_limit') {
     const c = _store.credentials[idx];
     if (!c) return;
+    if (_stickyCredIdx === idx) _stickyCredIdx = null;
     c.status = 'cooldown';
     c.cooldownUntil = Date.now() + getConfig().COOLDOWN_MS;
     c.lastError = reason;
@@ -207,6 +238,7 @@ export function markKiroCooldown(idx, reason = 'rate_limit') {
 export function markKiroDead(idx, reason = 'auth_failed') {
     const c = _store.credentials[idx];
     if (!c) return;
+    if (_stickyCredIdx === idx) _stickyCredIdx = null;
     c.status = 'dead';
     c.errorCount = (c.errorCount || 0) + 1;
     c.lastError = reason;
