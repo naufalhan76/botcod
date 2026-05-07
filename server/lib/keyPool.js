@@ -10,6 +10,7 @@ import { getState, upsertKeyState, pruneMissingKeys, getKeyState } from './state
 
 let _entries = []; // [{ email, key }]
 let _watcher = null;
+let _stickyKey = null;
 
 function parseKeysFile(filePath) {
     if (!fs.existsSync(filePath)) return [];
@@ -97,10 +98,20 @@ export function summary() {
  * excluding any key in `excludeKeys` (for retry within same request).
  */
 export function pickNext(excludeKeys = []) {
+    const excluded = new Set(excludeKeys);
     const now = Date.now();
+
+    if (_stickyKey && !excluded.has(_stickyKey)) {
+        const stickyEntry = _entries.find(e => e.key === _stickyKey);
+        if (stickyEntry && effectiveStatus(stickyEntry, now) === 'active') {
+            return stickyEntry;
+        }
+        _stickyKey = null;
+    }
+
     const candidates = [];
     for (const e of _entries) {
-        if (excludeKeys.includes(e.key)) continue;
+        if (excluded.has(e.key)) continue;
         const status = effectiveStatus(e, now);
         if (status !== 'active') continue;
         const s = getKeyState(e.key) || {};
@@ -108,6 +119,7 @@ export function pickNext(excludeKeys = []) {
     }
     if (candidates.length === 0) return null;
     candidates.sort((a, b) => a.last_used_at - b.last_used_at);
+    _stickyKey = candidates[0].entry.key;
     return candidates[0].entry;
 }
 
@@ -121,6 +133,7 @@ export function markUsed(key) {
 }
 
 export function markCooldown(key, reason = 'rate_limit') {
+    if (_stickyKey === key) _stickyKey = null;
     const cfg = getConfig();
     upsertKeyState(key, {
         status: 'cooldown',
@@ -130,6 +143,7 @@ export function markCooldown(key, reason = 'rate_limit') {
 }
 
 export function markDead(key, reason = 'unauthorized') {
+    if (_stickyKey === key) _stickyKey = null;
     const s = getKeyState(key) || {};
     upsertKeyState(key, {
         status: 'dead',
@@ -145,6 +159,22 @@ export function setStatus(key, status) {
     if (status === 'active') patch.cooldown_until = 0;
     if (status === 'cooldown') patch.cooldown_until = Date.now() + getConfig().COOLDOWN_MS;
     upsertKeyState(key, patch);
+}
+
+export function purgeDeadKeys() {
+    const now = Date.now();
+    const deadKeys = _entries.filter(e => effectiveStatus(e, now) === 'dead');
+    if (deadKeys.length === 0) return 0;
+
+    // Remove from file
+    const cfg = getConfig();
+    const alive = _entries.filter(e => effectiveStatus(e, now) !== 'dead');
+    const fileContent = alive.map(e => `${e.email}:${e.key}`).join('\n') + '\n';
+    fs.writeFileSync(cfg.KEYS_FILE, fileContent, 'utf-8');
+
+    // Reload entries from file (also prunes state)
+    reloadKeys();
+    return deadKeys.length;
 }
 
 export function getEntryByMaskedOrEmail(emailOrMasked) {

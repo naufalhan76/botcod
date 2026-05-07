@@ -28,7 +28,7 @@
 import { Router } from 'express';
 import { getConfig, updateSettings, providerForModel, getEffectiveModelCaps } from '../lib/config.js';
 import {
-    listPool, summary, reloadKeys, setStatus, getEntryByMaskedOrEmail
+    listPool, summary, reloadKeys, setStatus, getEntryByMaskedOrEmail, purgeDeadKeys
 } from '../lib/keyPool.js';
 import { loadLines, writeLines } from '../../lib/utils.js';
 import { createJob, getJob, listJobs, abortJob } from '../lib/jobs.js';
@@ -36,7 +36,7 @@ import { streamChatCompletion } from '../lib/upstream.js';
 import { kiroChatCompletion } from '../lib/providers/kiro/index.js';
 import {
     listKiroCreds, summaryKiro, addKiroCred, removeKiroCred,
-    setKiroCredStatus, getAccessTokenForCred, loadKiroStore
+    setKiroCredStatus, getAccessTokenForCred, loadKiroStore, purgeDeadKiroCreds
 } from '../lib/providers/kiro/credentials.js';
 import {
     listInboxes, addInbox, updateInbox, removeInbox, testInboxCredentials,
@@ -50,6 +50,7 @@ import { getRequestStats, getTokenStats, getPerformanceStats, getProviderHealth 
 import {
     listFilters, addFilter, updateFilter, removeFilter, toggleFilter
 } from '../lib/contentFilter.js';
+import { warmupCodeBuddy, warmupKiro } from '../lib/warmup.js';
 
 const router = Router();
 
@@ -108,6 +109,10 @@ router.post('/kiro/pool/:idx/status', (req, res) => {
     } catch (e) {
         res.status(400).json({ error: e.message });
     }
+});
+router.post('/kiro/pool/purge-dead', (req, res) => {
+    const removed = purgeDeadKiroCreds();
+    res.json({ removed });
 });
 
 // ---- Temp mail ----
@@ -229,6 +234,10 @@ router.delete('/history', (req, res) => {
 // ---- Pool ----
 router.get('/pool', (req, res) => res.json({ summary: summary(), entries: listPool() }));
 router.post('/pool/reload', (req, res) => res.json({ count: reloadKeys() }));
+router.post('/pool/purge-dead', (req, res) => {
+    const removed = purgeDeadKeys();
+    res.json({ removed });
+});
 router.post('/pool/:identifier/status', (req, res) => {
     const entry = getEntryByMaskedOrEmail(req.params.identifier);
     if (!entry) return res.status(404).json({ error: 'key not found' });
@@ -394,6 +403,25 @@ router.post('/test-chat', async (req, res) => {
     };
     if (provider === 'kiro') return kiroChatCompletion(body, res);
     return streamChatCompletion(body, res);
+});
+
+// ---- Warmup endpoints ----
+router.post('/warmup/codebuddy', async (req, res) => {
+    try {
+        const result = await warmupCodeBuddy();
+        res.json(result);
+    } catch (err) {
+        res.status(500).json({ error: err.message });
+    }
+});
+
+router.post('/warmup/kiro', async (req, res) => {
+    try {
+        const result = await warmupKiro();
+        res.json(result);
+    } catch (err) {
+        res.status(500).json({ error: err.message });
+    }
 });
 
 // ---- Content Filters ----

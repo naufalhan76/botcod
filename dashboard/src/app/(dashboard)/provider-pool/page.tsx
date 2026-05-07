@@ -1,7 +1,7 @@
 'use client'
 
-import { useState } from 'react'
-import { usePool, useKiroPool, useSetPoolStatus } from '@/hooks/use-pool'
+import { useEffect, useState } from 'react'
+import { usePool, useKiroPool, useSetPoolStatus, useWarmupPool, useWarmupKiroPool, usePurgeDeadPool, usePurgeDeadKiroPool } from '@/hooks/use-pool'
 import { TableSkeleton } from '@/components/skeletons'
 import { ErrorState } from '@/components/error-state'
 import { EmptyState } from '@/components/empty-state'
@@ -18,14 +18,66 @@ import {
 import { showSuccess, showError } from '@/lib/toast'
 import { apiFetch } from '@/lib/api-client'
 import { useQueryClient } from '@tanstack/react-query'
-import { MdRefresh, MdMoreVert, MdCloud } from 'react-icons/md'
+import { MdRefresh, MdMoreVert, MdCloud, MdPlayArrow, MdDeleteSweep } from 'react-icons/md'
+import type { WarmupSummary } from '@/types'
+
+const PAGE_SIZE = 10
 
 export default function ProviderPoolPage() {
   const { data: poolData, isLoading: poolLoading, isError: poolError, refetch: refetchPool } = usePool()
   const { data: kiroData, isLoading: kiroLoading, isError: kiroError, refetch: refetchKiro } = useKiroPool()
   const setStatus = useSetPoolStatus()
+  const warmupPool = useWarmupPool()
+  const warmupKiroPool = useWarmupKiroPool()
+  const purgeDeadPool = usePurgeDeadPool()
+  const purgeDeadKiroPool = usePurgeDeadKiroPool()
   const qc = useQueryClient()
   const [reloading, setReloading] = useState(false)
+  const [cbPage, setCbPage] = useState(1)
+  const [kiroPage, setKiroPage] = useState(1)
+  const [cbWarmupResult, setCbWarmupResult] = useState<WarmupSummary | null>(null)
+  const [kiroWarmupResult, setKiroWarmupResult] = useState<WarmupSummary | null>(null)
+
+  const poolEntryCount = poolData?.entries.length ?? 0
+  const kiroEntryCount = kiroData?.entries.length ?? 0
+  const cbTotalPages = Math.max(1, Math.ceil(poolEntryCount / PAGE_SIZE))
+  const kiroTotalPages = Math.max(1, Math.ceil(kiroEntryCount / PAGE_SIZE))
+  const cbPageIndex = Math.min(cbPage, cbTotalPages)
+  const kiroPageIndex = Math.min(kiroPage, kiroTotalPages)
+  const cbVisibleEntries = poolData?.entries.slice((cbPageIndex - 1) * PAGE_SIZE, cbPageIndex * PAGE_SIZE) ?? []
+  const kiroVisibleEntries = kiroData?.entries.slice((kiroPageIndex - 1) * PAGE_SIZE, kiroPageIndex * PAGE_SIZE) ?? []
+
+  useEffect(() => {
+    setCbPage(1)
+  }, [poolEntryCount])
+
+  useEffect(() => {
+    setKiroPage(1)
+  }, [kiroEntryCount])
+
+  useEffect(() => {
+    setCbWarmupResult(null)
+  }, [cbPageIndex])
+
+  useEffect(() => {
+    setKiroWarmupResult(null)
+  }, [kiroPageIndex])
+
+  useEffect(() => {
+    if (!cbWarmupResult) return
+    const timer = setTimeout(() => {
+      setCbWarmupResult(null)
+    }, 30000)
+    return () => clearTimeout(timer)
+  }, [cbWarmupResult])
+
+  useEffect(() => {
+    if (!kiroWarmupResult) return
+    const timer = setTimeout(() => {
+      setKiroWarmupResult(null)
+    }, 30000)
+    return () => clearTimeout(timer)
+  }, [kiroWarmupResult])
 
   const handleStatusChange = async (identifier: string, status: string) => {
     try {
@@ -49,6 +101,48 @@ export default function ProviderPoolPage() {
     }
   }
 
+  const handleWarmupCb = async () => {
+    setCbWarmupResult(null)
+    try {
+      const res = await warmupPool.mutateAsync()
+      setCbWarmupResult(res)
+      showSuccess(`Warmup complete: ${res.ok} OK, ${res.dead} Dead`)
+    } catch (err) {
+      showError(err instanceof Error ? err.message : 'Failed to warmup CodeBuddy pool')
+    }
+  }
+
+  const handleWarmupKiro = async () => {
+    setKiroWarmupResult(null)
+    try {
+      const res = await warmupKiroPool.mutateAsync()
+      setKiroWarmupResult(res)
+      showSuccess(`Warmup complete: ${res.ok} OK, ${res.dead} Dead`)
+    } catch (err) {
+      showError(err instanceof Error ? err.message : 'Failed to warmup Kiro pool')
+    }
+  }
+
+  const handlePurgeDeadCb = async () => {
+    if (!confirm('Delete ALL dead CodeBuddy keys? This cannot be undone.')) return
+    try {
+      const res = await purgeDeadPool.mutateAsync()
+      showSuccess(`Purged ${res.removed} dead key(s)`)
+    } catch (err) {
+      showError(err instanceof Error ? err.message : 'Failed to purge dead keys')
+    }
+  }
+
+  const handlePurgeDeadKiro = async () => {
+    if (!confirm('Delete ALL dead Kiro credentials? This cannot be undone.')) return
+    try {
+      const res = await purgeDeadKiroPool.mutateAsync()
+      showSuccess(`Purged ${res.removed} dead credential(s)`)
+    } catch (err) {
+      showError(err instanceof Error ? err.message : 'Failed to purge dead Kiro credentials')
+    }
+  }
+
   const getStatusBadge = (status: string) => {
     const variants = {
       active: 'bg-emerald-500/10 text-emerald-600 hover:bg-emerald-500/20',
@@ -59,6 +153,40 @@ export default function ProviderPoolPage() {
       <Badge variant="outline" className={variants[status as keyof typeof variants] || ''}>
         {status}
       </Badge>
+    )
+  }
+
+  const renderPagination = (page: number, totalPages: number, setPage: (page: number) => void) => {
+    if (totalPages <= 1) return null
+
+    return (
+      <div className="flex items-center justify-between gap-3 border-t px-4 py-3 text-sm">
+        <Button variant="outline" size="sm" onClick={() => setPage(page - 1)} disabled={page === 1}>
+          Previous
+        </Button>
+        <span className="text-muted-foreground">
+          Page {page} of {totalPages}
+        </span>
+        <Button variant="outline" size="sm" onClick={() => setPage(page + 1)} disabled={page === totalPages}>
+          Next
+        </Button>
+      </div>
+    )
+  }
+
+  const renderWarmupResult = (result: WarmupSummary | null) => {
+    if (!result) return null
+    return (
+      <div className="mt-4 rounded-md bg-muted/50 p-4 text-sm">
+        <div className="mb-2 font-medium">Warmup Results</div>
+        <div className="flex flex-wrap gap-4">
+          <div className="flex items-center gap-1.5"><span className="text-muted-foreground">Tested:</span> {result.tested}</div>
+          <div className="flex items-center gap-1.5"><span className="text-emerald-600">OK:</span> {result.ok}</div>
+          <div className="flex items-center gap-1.5"><span className="text-rose-600">Dead:</span> {result.dead}</div>
+          <div className="flex items-center gap-1.5"><span className="text-amber-600">Cooldown:</span> {result.cooldown}</div>
+          <div className="flex items-center gap-1.5"><span className="text-orange-600">Timeout:</span> {result.timeout}</div>
+        </div>
+      </div>
     )
   }
 
@@ -83,19 +211,56 @@ export default function ProviderPoolPage() {
                 )}
               </CardDescription>
             </div>
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={handleReload}
-              disabled={reloading}
-            >
-              <MdRefresh className={`mr-2 h-4 w-4 ${reloading ? 'animate-spin' : ''}`} />
-              Reload
-            </Button>
+            <div className="flex gap-2">
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={handleWarmupCb}
+                disabled={warmupPool.isPending || poolLoading}
+              >
+                {warmupPool.isPending ? (
+                  <MdRefresh className="mr-2 h-4 w-4 animate-spin" />
+                ) : (
+                  <MdPlayArrow className="mr-2 h-4 w-4" />
+                )}
+                {warmupPool.isPending ? 'Warming up...' : 'Warmup All'}
+              </Button>
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => refetchPool()}
+                disabled={poolLoading || reloading}
+              >
+                <MdRefresh className={`mr-2 h-4 w-4 ${poolLoading ? 'animate-spin' : ''}`} />
+                Refresh
+              </Button>
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={handleReload}
+                disabled={reloading}
+              >
+                <MdCloud className={`mr-2 h-4 w-4 ${reloading ? 'animate-bounce' : ''}`} />
+                Reload
+              </Button>
+              {poolData && poolData.summary.dead > 0 && (
+                <Button
+                  variant="destructive"
+                  size="sm"
+                  onClick={handlePurgeDeadCb}
+                  disabled={purgeDeadPool.isPending}
+                >
+                  <MdDeleteSweep className="mr-2 h-4 w-4" />
+                  {purgeDeadPool.isPending ? 'Deleting...' : `Delete dead (${poolData.summary.dead})`}
+                </Button>
+              )}
+            </div>
           </div>
         </CardHeader>
         <CardContent>
-          {poolLoading ? (
+          <div className="flex flex-col gap-4">
+            {renderWarmupResult(cbWarmupResult)}
+            {poolLoading ? (
             <TableSkeleton rows={3} />
           ) : poolError ? (
             <ErrorState
@@ -122,7 +287,7 @@ export default function ProviderPoolPage() {
                   </TableRow>
                 </TableHeader>
                 <TableBody>
-                  {poolData.entries.map((entry) => (
+                  {cbVisibleEntries.map((entry) => (
                     <TableRow key={entry.email}>
                       <TableCell className="font-medium">{entry.email}</TableCell>
                       <TableCell className="font-mono text-sm">{entry.key_masked}</TableCell>
@@ -154,25 +319,68 @@ export default function ProviderPoolPage() {
                   ))}
                 </TableBody>
               </Table>
+              {renderPagination(cbPageIndex, cbTotalPages, setCbPage)}
             </div>
           )}
+          </div>
         </CardContent>
       </Card>
 
       {/* Kiro Pool */}
       <Card>
         <CardHeader>
-          <CardTitle>Kiro Pool</CardTitle>
-          <CardDescription>
-            {kiroData && (
-              <span className="text-sm">
-                {kiroData.summary.active} active, {kiroData.summary.cooldown} cooldown, {kiroData.summary.dead} dead
-              </span>
-            )}
-          </CardDescription>
+          <div className="flex items-center justify-between">
+            <div>
+              <CardTitle>Kiro Pool</CardTitle>
+              <CardDescription>
+                {kiroData && (
+                  <span className="text-sm">
+                    {kiroData.summary.active} active, {kiroData.summary.cooldown} cooldown, {kiroData.summary.dead} dead
+                  </span>
+                )}
+              </CardDescription>
+            </div>
+            <div className="flex gap-2">
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={handleWarmupKiro}
+                disabled={warmupKiroPool.isPending || kiroLoading}
+              >
+                {warmupKiroPool.isPending ? (
+                  <MdRefresh className="mr-2 h-4 w-4 animate-spin" />
+                ) : (
+                  <MdPlayArrow className="mr-2 h-4 w-4" />
+                )}
+                {warmupKiroPool.isPending ? 'Warming up...' : 'Warmup All'}
+              </Button>
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => refetchKiro()}
+                disabled={kiroLoading}
+              >
+                <MdRefresh className={`mr-2 h-4 w-4 ${kiroLoading ? 'animate-spin' : ''}`} />
+                Refresh
+              </Button>
+              {kiroData && kiroData.summary.dead > 0 && (
+                <Button
+                  variant="destructive"
+                  size="sm"
+                  onClick={handlePurgeDeadKiro}
+                  disabled={purgeDeadKiroPool.isPending}
+                >
+                  <MdDeleteSweep className="mr-2 h-4 w-4" />
+                  {purgeDeadKiroPool.isPending ? 'Deleting...' : `Delete dead (${kiroData.summary.dead})`}
+                </Button>
+              )}
+            </div>
+          </div>
         </CardHeader>
         <CardContent>
-          {kiroLoading ? (
+          <div className="flex flex-col gap-4">
+            {renderWarmupResult(kiroWarmupResult)}
+            {kiroLoading ? (
             <TableSkeleton rows={3} />
           ) : kiroError ? (
             <ErrorState
@@ -199,7 +407,7 @@ export default function ProviderPoolPage() {
                   </TableRow>
                 </TableHeader>
                 <TableBody>
-                  {kiroData.entries.map((entry) => (
+                  {kiroVisibleEntries.map((entry) => (
                     <TableRow key={entry.idx}>
                       <TableCell className="font-medium">{entry.label}</TableCell>
                       <TableCell>{getStatusBadge(entry.status)}</TableCell>
@@ -235,8 +443,10 @@ export default function ProviderPoolPage() {
                   ))}
                 </TableBody>
               </Table>
+              {renderPagination(kiroPageIndex, kiroTotalPages, setKiroPage)}
             </div>
           )}
+          </div>
         </CardContent>
       </Card>
     </div>
