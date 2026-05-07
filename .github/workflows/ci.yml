@@ -1,0 +1,64 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  build-and-test:
+    runs-on: ubuntu-latest
+
+    strategy:
+      matrix:
+        node-version: [20]
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Node.js ${{ matrix.node-version }}
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ matrix.node-version }}
+          cache: 'npm'
+          cache-dependency-path: |
+            package-lock.json
+            dashboard/package-lock.json
+
+      - name: Install root dependencies
+        run: npm ci
+
+      - name: Install dashboard dependencies
+        run: npm ci
+        working-directory: dashboard
+
+      - name: TypeScript check
+        run: npx tsc --noEmit
+        working-directory: dashboard
+
+      - name: Build dashboard
+        run: npm run build
+        working-directory: dashboard
+
+      - name: Run tests
+        run: npm run test
+        working-directory: dashboard
+
+      - name: Verify no forbidden colors
+        run: |
+          if grep -ri "indigo\|violet\|teal" dashboard/tailwind.config.ts; then
+            echo "ERROR: Forbidden colors found in tailwind config"
+            exit 1
+          fi
+          echo "✓ No forbidden colors"
+
+      - name: Verify no type suppressions
+        run: |
+          count=$(grep -r "@ts-ignore\|@ts-expect-error" dashboard/src/ --include="*.ts" --include="*.tsx" | grep -v node_modules | grep -v __tests__ | wc -l)
+          if [ "$count" -gt 0 ]; then
+            echo "ERROR: Found $count type suppressions"
+            grep -r "@ts-ignore\|@ts-expect-error" dashboard/src/ --include="*.ts" --include="*.tsx" | grep -v node_modules | grep -v __tests__
+            exit 1
+          fi
+          echo "✓ No type suppressions"
