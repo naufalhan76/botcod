@@ -173,7 +173,14 @@
                         <option value="2" selected>CodeBuddy only</option>
                         <option value="4">Kiro only</option>
                     </select>
-                    <span class="muted">Kiro requires <code>kiro-cli</code> + <code>sqlite3</code> in PATH on this machine.</span>
+                    <span class="muted">Kiro uses direct browser OAuth (no kiro-cli needed).</span>
+                </label>
+                <label>Browser Engine
+                    <select id="run-browser-engine">
+                        <option value="camoufox" selected>Camoufox (Firefox)</option>
+                        <option value="cloakbrowser">CloakBrowser (Chromium)</option>
+                    </select>
+                    <span class="muted">CloakBrowser uses ~60% less RAM but requires first-run binary download (~200MB).</span>
                 </label>
                 <label>Browser Engine
                     <select id="run-browser-engine">
@@ -220,7 +227,7 @@
             <div class="card-head"><h3>Recent jobs</h3></div>
             <div class="table-wrap">
                 <table>
-                    <thead><tr><th>Started</th><th>Mode</th><th>Conc.</th><th>Status</th><th>Progress</th><th>Keys</th><th></th></tr></thead>
+                    <thead><tr><th>Started</th><th>Mode</th><th>Conc.</th><th>Status</th><th>Progress</th><th>Keys</th><th>Kiro</th><th></th></tr></thead>
                     <tbody id="jobs-tbody"></tbody>
                 </table>
             </div>

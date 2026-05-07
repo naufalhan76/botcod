@@ -6,7 +6,7 @@
 const BUCKET_SIZE_MS = 3600000; // 1 hour buckets
 const MAX_BUCKETS = 720; // 30 days of hourly data
 
-let _requestBuckets = []; // [{ timestamp, count, success, error }]
+let _requestBuckets = []; // [{ timestamp, count, success, error, totalTokensSaved, cacheHits, cacheMisses }]
 let _tokenStats = []; // [{ timestamp, model, provider, promptTokens, completionTokens }]
 let _latencyStats = []; // [{ timestamp, provider, latencyMs, success }]
 let _providerHealth = new Map(); // provider -> { lastCheck, consecutiveErrors, status }
@@ -19,7 +19,7 @@ function getCurrentBucketTimestamp() {
 function getOrCreateBucket(timestamp) {
   let bucket = _requestBuckets.find(b => b.timestamp === timestamp);
   if (!bucket) {
-    bucket = { timestamp, count: 0, success: 0, error: 0 };
+    bucket = { timestamp, count: 0, success: 0, error: 0, totalTokensSaved: 0, cacheHits: 0, cacheMisses: 0 };
     _requestBuckets.push(bucket);
     // Trim old buckets
     if (_requestBuckets.length > MAX_BUCKETS) {
@@ -29,7 +29,7 @@ function getOrCreateBucket(timestamp) {
   return bucket;
 }
 
-export function trackRequest({ model, provider, promptTokens = 0, completionTokens = 0, latencyMs = 0, success = true }) {
+export function trackRequest({ model, provider, tokensSaved = 0, cacheHit = null, promptTokens = 0, completionTokens = 0, latencyMs = 0, success = true }) {
   const ts = getCurrentBucketTimestamp();
   
   // Request volume
@@ -37,6 +37,11 @@ export function trackRequest({ model, provider, promptTokens = 0, completionToke
   bucket.count++;
   if (success) bucket.success++;
   else bucket.error++;
+
+  // Token savings / cache stats
+  bucket.totalTokensSaved += Number(tokensSaved) || 0;
+  if (cacheHit === true) bucket.cacheHits++;
+  else if (cacheHit === false) bucket.cacheMisses++;
   
   // Token stats
   _tokenStats.push({ timestamp: ts, model, provider, promptTokens, completionTokens });
@@ -69,6 +74,16 @@ function filterByPeriod(items, period) {
 export function getRequestStats(period = '24h') {
   const buckets = filterByPeriod(_requestBuckets, period);
   return { buckets };
+}
+
+export function getTokenSavingsStats(period = '24h') {
+  const buckets = filterByPeriod(_requestBuckets, period);
+  return buckets.reduce((acc, bucket) => {
+    acc.totalTokensSaved += bucket.totalTokensSaved || 0;
+    acc.cacheHits += bucket.cacheHits || 0;
+    acc.cacheMisses += bucket.cacheMisses || 0;
+    return acc;
+  }, { totalTokensSaved: 0, cacheHits: 0, cacheMisses: 0 });
 }
 
 export function getTokenStats(period = '24h') {

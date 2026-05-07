@@ -14,6 +14,8 @@ import { trackAiRequest } from '../lib/history.js';
 import { applyBodyFilters } from '../lib/contentFilter.js';
 import { applyRtk } from '../lib/rtk/index.js';
 import { applyCaveman } from '../lib/caveman.js';
+import { applyHistoryTruncation } from '../lib/historyTruncate.js';
+import { applyResponseCache, storeResponseCache, computeCacheKey } from '../lib/responseCache.js';
 
 const router = Router();
 
@@ -53,8 +55,23 @@ router.post('/chat/completions', async (req, res) => {
     // Apply content filters (strip fingerprints from messages before forwarding)
     applyBodyFilters(body);
 
-    // RTK Token Saver — compress tool_result content (default ON)
+    // Response Cache — check for cached response (hash raw input before mutations)
     const cfg = getConfig();
+    let cacheKey = null;
+    if (cfg.CACHE_ENABLED !== false && body.stream === false) {
+        const cacheResult = applyResponseCache(body);
+        cacheKey = cacheResult.key;
+        if (cacheResult.hit) {
+            history.set({ cache_hit: true });
+            console.log(`[cache] HIT ${body.model}`);
+            res.setHeader('X-Cache', 'HIT');
+            return res.json(cacheResult.cachedResponse);
+        }
+        res.setHeader('X-Cache', 'MISS');
+        history.set({ cache_hit: false });
+    }
+
+    // RTK Token Saver — compress tool_result content (default ON)
     if (cfg.RTK_ENABLED !== false) {
         applyRtk(body);
     }
@@ -62,6 +79,14 @@ router.post('/chat/completions', async (req, res) => {
     // Caveman Mode — inject terse system prompt (default ON)
     if (cfg.CAVEMAN_ENABLED !== false) {
         applyCaveman(body, cfg.CAVEMAN_LEVEL || 'full');
+    }
+
+    // History Truncation — trim old turns if approaching context window
+    if (cfg.TRUNCATE_ENABLED !== false) {
+        const truncResult = applyHistoryTruncation(body, { threshold: cfg.TRUNCATE_THRESHOLD, enabled: true });
+        if (truncResult.truncated) {
+            history.set({ tokens_saved: truncResult.tokensSaved });
+        }
     }
 
     const provider = providerForModel(body.model);
@@ -86,7 +111,11 @@ router.post('/chat/completions', async (req, res) => {
                 }
             });
         }
-        return streamChatCompletion(body, res);
+        return streamChatCompletion(body, res, {
+            onNonStreamResponse: (aggregated) => {
+                if (cacheKey) storeResponseCache(cacheKey, aggregated);
+            }
+        });
     }
 
     if (provider === 'kiro') {
@@ -102,7 +131,11 @@ router.post('/chat/completions', async (req, res) => {
                 }
             });
         }
-        return kiroChatCompletion(body, res);
+        return kiroChatCompletion(body, res, {
+            onNonStreamResponse: (aggregated) => {
+                if (cacheKey) storeResponseCache(cacheKey, aggregated);
+            }
+        });
     }
 
     history.set({ error: `unhandled provider: ${provider}` });

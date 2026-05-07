@@ -34,6 +34,52 @@ async function api(method, path, body = null) {
     return json;
 }
 
+function ensureTokenSaverSection() {
+    if ($('#set-truncate-enabled')) return;
+    const settingsPanel = document.querySelector('.panel[data-panel="settings"]');
+    const modelCapsCard = $('#set-model-caps')?.closest('.card');
+    if (!settingsPanel || !modelCapsCard) return;
+
+    const wrap = document.createElement('div');
+    wrap.innerHTML = `
+        <div class="card" data-token-saver-card="1">
+            <div class="card-head"><h3>Token Saver</h3></div>
+            <p class="muted">History truncation trims older messages before retrying; response cache reuses recent outputs for identical requests.</p>
+            <div class="form-grid">
+                <label>History Truncation
+                    <select id="set-truncate-enabled">
+                        <option value="true">ON</option>
+                        <option value="false">OFF</option>
+                    </select>
+                </label>
+                <label>Truncation Threshold
+                    <input type="number" id="set-truncate-threshold" min="0.3" max="0.9" step="0.1" />
+                    <span class="muted">0.3-0.9, default 0.7. Higher = keep more history.</span>
+                </label>
+                <label>Response Cache
+                    <select id="set-cache-enabled">
+                        <option value="true">ON</option>
+                        <option value="false">OFF</option>
+                    </select>
+                </label>
+                <label>Cache TTL (seconds)
+                    <input type="number" id="set-cache-ttl" min="1" step="1" />
+                    <span class="muted">Saved as CACHE_TTL_MS. Displayed in seconds for easier tuning.</span>
+                </label>
+                <label>Cache Max Size
+                    <input type="number" id="set-cache-max-size" min="1" step="1" />
+                    <span class="muted">Maximum cached responses to keep in memory.</span>
+                </label>
+                <div>
+                    <button id="set-token-saver-save" class="btn primary">Save token saver settings</button>
+                </div>
+            </div>
+        </div>`;
+    settingsPanel.insertBefore(wrap.firstElementChild, modelCapsCard);
+}
+
+ensureTokenSaverSection();
+
 // ---- Tabs ----
 $$('.tab').forEach(btn => btn.addEventListener('click', () => {
     $$('.tab').forEach(b => b.classList.toggle('active', b === btn));
@@ -361,6 +407,7 @@ async function loadJobs() {
                 <td><span class="badge ${j.status}">${j.status}</span></td>
                 <td>${j.processed}/${j.total} (ok ${j.success} · fail ${j.failed})</td>
                 <td>${j.keysObtained}</td>
+                <td>${j.kiroCredsObtained || 0}</td>
                 <td>
                     ${j.status === 'running'
                         ? `<button class="btn" data-job-attach="${j.id}">Attach log</button> <button class="btn danger" data-job-abort="${j.id}">Abort</button>`
@@ -528,6 +575,11 @@ async function loadSettings() {
     $('#set-rtk').value = String(s.RTK_ENABLED !== false);
     $('#set-caveman').value = String(s.CAVEMAN_ENABLED !== false);
     $('#set-caveman-level').value = s.CAVEMAN_LEVEL || 'full';
+    $('#set-truncate-enabled').value = String(s.TRUNCATE_ENABLED !== false);
+    $('#set-truncate-threshold').value = s.TRUNCATE_THRESHOLD ?? 0.7;
+    $('#set-cache-enabled').value = String(s.CACHE_ENABLED !== false);
+    $('#set-cache-ttl').value = Math.max(1, Math.round((s.CACHE_TTL_MS ?? 300000) / 1000));
+    $('#set-cache-max-size').value = s.CACHE_MAX_SIZE ?? 100;
 }
 $('#set-save').addEventListener('click', async () => {
     const patch = {
@@ -589,6 +641,30 @@ $('#set-token-save').addEventListener('click', async () => {
     }
 });
 
+$('#set-token-saver-save').addEventListener('click', async () => {
+    const threshold = parseFloat($('#set-truncate-threshold').value);
+    const ttlSeconds = parseInt($('#set-cache-ttl').value);
+    const maxSize = parseInt($('#set-cache-max-size').value);
+    if (!Number.isFinite(threshold) || !Number.isFinite(ttlSeconds) || !Number.isFinite(maxSize)) {
+        toast('Token saver settings need valid numbers', true);
+        return;
+    }
+    const patch = {
+        TRUNCATE_ENABLED: $('#set-truncate-enabled').value === 'true',
+        TRUNCATE_THRESHOLD: threshold,
+        CACHE_ENABLED: $('#set-cache-enabled').value === 'true',
+        CACHE_TTL_MS: ttlSeconds * 1000,
+        CACHE_MAX_SIZE: maxSize
+    };
+    try {
+        await api('PUT', '/api/settings', patch);
+        toast('Token saver settings saved');
+        loadSettings();
+    } catch (e) {
+        toast(e.message, true);
+    }
+});
+
 // ---- helpers ----
 function esc(s) {
     return String(s ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
@@ -614,7 +690,7 @@ function creditChip(entry = {}) {
     return `<span class="credit-chip ${esc(status)}">${esc(text)}</span>`;
 }
 function modeName(m) {
-    return { 1: 'Unlucid', 2: 'CodeBuddy', 3: 'Both' }[m] || `mode ${m}`;
+    return { 1: 'Unlucid', 2: 'CodeBuddy', 3: 'Unlucid+CB', 4: 'Kiro', 5: 'Unlucid+Kiro', 6: 'CB+Kiro', 7: 'All' }[m] || `mode ${m}`;
 }
 
 // ---- TEMP MAIL ----
