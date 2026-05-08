@@ -97,11 +97,12 @@ function buildKiroRequest(openaiBody) {
     const rawMessages = Array.isArray(openaiBody.messages) ? openaiBody.messages : [];
     const msgs = rawMessages.map(normalizeOpenAIMessage);
 
+    const thinkingEnabled = shouldEnableKiroThinking(openaiBody);
     const tools = buildKiroTools(openaiBody, msgs);
 
     // Pull system messages and prefix the first user message.
     let systemText = msgs.filter(m => m.role === 'system').map(m => m.content).join('\n').trim();
-    if (shouldEnableKiroThinking(openaiBody)) {
+    if (thinkingEnabled) {
         systemText = systemText
             ? `${KIRO_THINKING_PROMPT}\n\n${systemText}`
             : KIRO_THINKING_PROMPT;
@@ -136,6 +137,13 @@ function buildKiroRequest(openaiBody) {
 
     const { historyMessages, currentToolMessages } = splitHistoryAndCurrentToolResults(turns);
     const currentToolResults = convertToolResultsToKiroFormat(currentToolMessages, knownToolUseIds);
+    logToolRequest({ tools, currentToolResults, knownToolUseIds, thinkingEnabled });
+    if (openaiBody.tool_choice != null) {
+        log(`tool_choice present (stripped): ${JSON.stringify(openaiBody.tool_choice)}`);
+    }
+    if (openaiBody.parallel_tool_calls != null) {
+        log(`parallel_tool_calls present (stripped): ${openaiBody.parallel_tool_calls}`);
+    }
     const history = truncateHistoryForModel(
         buildKiroHistoryFromUnified(historyMessages, modelId),
         friendlyModel,
@@ -175,8 +183,30 @@ function buildKiroTools(openaiBody, messages) {
         if (!fn?.name || String(fn.name).length <= KIRO_MAX_TOOL_NAME_LENGTH) return tool;
         return { ...tool, function: { ...fn, name: shortenToolName(fn.name, KIRO_MAX_TOOL_NAME_LENGTH) } };
     });
+    // Filter out tools with empty names after processing
+    tools = tools.filter(tool => {
+        const name = tool?.function?.name || tool?.toolSpecification?.name;
+        return name && String(name).trim().length > 0;
+    });
 
     return convertToolsToKiroSpec(tools).map(wrapToolInputSchemaJson);
+}
+
+function logToolRequest({ tools, currentToolResults, knownToolUseIds, thinkingEnabled }) {
+    const toolNames = tools
+        .map(tool => tool?.toolSpecification?.name)
+        .filter(Boolean);
+    const resultIds = currentToolResults
+        .map(result => result?.toolUseId)
+        .filter(Boolean);
+    log(
+        `tool lifecycle request: definitions=${tools.length}` +
+        ` results=${currentToolResults.length}` +
+        ` known_calls=${knownToolUseIds.size}` +
+        ` thinking=${thinkingEnabled ? 'on' : 'off'}`
+    );
+    if (toolNames.length > 0) log(`tool definitions: ${toolNames.join(', ')}`);
+    if (resultIds.length > 0) log(`tool results: ${resultIds.join(', ')}`);
 }
 
 function wrapToolInputSchemaJson(tool) {
@@ -280,7 +310,10 @@ function frameToOpenAIDelta(frame, ctx) {
         if (!reasoning && !content) return null;
         const delta = {};
         if (content)   delta.content = content;
-        if (reasoning) delta.reasoning_content = reasoning;
+        if (reasoning) {
+            delta.reasoning_content = reasoning;
+            ctx._hasReasoning = true;
+        }
         return {
             id: ctx.responseId,
             object: 'chat.completion.chunk',
@@ -291,8 +324,24 @@ function frameToOpenAIDelta(frame, ctx) {
     }
 
     if (eventType === 'toolUseEvent') {
+        const toolUseId = String(payload?.toolUse?.toolUseId || payload?.toolUseId || payload?.id || '').trim();
+        const toolName = String(payload?.toolUse?.name || payload?.name || '').trim();
+        // Edge case: skip toolUseEvent with empty name
+        if (!toolName) {
+            log(`tool use event skipped: empty name, id=${toolUseId || 'unknown'}`);
+            return null;
+        }
+        if (toolUseId) {
+            ctx._seenToolUseIds ??= new Set();
+            if (ctx._seenToolUseIds.has(toolUseId)) {
+                log(`tool use event duplicate skipped: id=${toolUseId}`);
+                return null;
+            }
+            ctx._seenToolUseIds.add(toolUseId);
+        }
         ctx._toolCallIndex = (ctx._toolCallIndex ?? -1) + 1;
         ctx._hasToolCalls = true;
+        log(`tool use event: index=${ctx._toolCallIndex} id=${toolUseId || 'unknown'} name=${toolName}`);
         return {
             id: ctx.responseId,
             object: 'chat.completion.chunk',
@@ -457,6 +506,7 @@ async function streamFrames(upstreamBody, res, ctx) {
         const delta = ctx._inThink
             ? { reasoning_content: ctx._tBuf }
             : { content: ctx._tBuf };
+        if (ctx._inThink) ctx._hasReasoning = true;
         ctx._tBuf = '';
         res.write(`data: ${JSON.stringify({
             id: ctx.responseId,
@@ -473,6 +523,7 @@ async function streamFrames(upstreamBody, res, ctx) {
         model: ctx.model,
         choices: [{ index: 0, delta: {}, finish_reason: ctx._hasToolCalls ? 'tool_calls' : 'stop' }]
     };
+    log(`response: ${ctx._hasToolCalls ? 'tool_calls' : 'content'} reasoning=${ctx._hasReasoning ? 'yes' : 'no'}`);
     res.write(`data: ${JSON.stringify(stopChunk)}\n\n`);
     res.write('data: [DONE]\n\n');
     res.end();
@@ -483,6 +534,7 @@ function aggregateNonStream(buf, ctx) {
     parser.push(buf);
     let raw = '';
     const toolCalls = [];
+    const seenToolUseIds = new Set();
     for (const frame of parser.drain()) {
         const eventType = frame.headers[':event-type'];
         if (eventType === 'assistantResponseEvent') {
@@ -494,6 +546,19 @@ function aggregateNonStream(buf, ctx) {
         if (eventType === 'toolUseEvent') {
             try {
                 const j = JSON.parse(frame.payload.toString('utf-8'));
+                const toolUseId = String(j?.toolUse?.toolUseId || j?.toolUseId || j?.id || '').trim();
+                const toolName = String(j?.toolUse?.name || j?.name || '').trim();
+                // Edge case: skip toolUseEvent with empty name
+                if (!toolName) {
+                    log(`tool use event skipped: empty name, id=${toolUseId || 'unknown'}`);
+                    continue;
+                }
+                if (toolUseId && seenToolUseIds.has(toolUseId)) {
+                    log(`tool use event duplicate skipped: id=${toolUseId}`);
+                    continue;
+                }
+                if (toolUseId) seenToolUseIds.add(toolUseId);
+                log(`tool use event: index=${toolCalls.length} id=${toolUseId || 'unknown'} name=${toolName}`);
                 const { index, ...toolCall } = convertKiroToolUseToOpenAI(j, toolCalls.length);
                 toolCalls.push(toolCall);
             } catch {}
@@ -506,6 +571,7 @@ function aggregateNonStream(buf, ctx) {
     const message = { role: 'assistant', content };
     if (reasoning) message.reasoning_content = reasoning;
     if (toolCalls.length > 0) message.tool_calls = toolCalls;
+    log(`response: ${toolCalls.length > 0 ? 'tool_calls' : 'content'} reasoning=${reasoning ? 'yes' : 'no'}`);
     return {
         id: ctx.responseId,
         object: 'chat.completion',
