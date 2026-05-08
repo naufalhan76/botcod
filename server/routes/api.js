@@ -394,7 +394,7 @@ router.get('/settings', (req, res) => {
     });
 });
 router.put('/settings', (req, res) => {
-    const allowed = ['COOLDOWN_MS', 'EXPOSED_MODELS', 'MAX_ROTATIONS_PER_REQUEST', 'MODEL_CAPS_OVERRIDES', 'RTK_ENABLED', 'CAVEMAN_ENABLED', 'CAVEMAN_LEVEL'];
+    const allowed = ['COOLDOWN_MS', 'EXPOSED_MODELS', 'MAX_ROTATIONS_PER_REQUEST', 'MODEL_CAPS_OVERRIDES', 'RTK_ENABLED', 'CAVEMAN_ENABLED', 'CAVEMAN_LEVEL', 'TRUNCATE_ENABLED', 'TRUNCATE_THRESHOLD', 'CACHE_ENABLED', 'CACHE_TTL_MS', 'CACHE_MAX_SIZE'];
     const patch = {};
     for (const k of allowed) {
         if (k in (req.body || {})) patch[k] = req.body[k];

@@ -528,6 +528,11 @@ async function loadSettings() {
     $('#set-rtk').value = String(s.RTK_ENABLED !== false);
     $('#set-caveman').value = String(s.CAVEMAN_ENABLED !== false);
     $('#set-caveman-level').value = s.CAVEMAN_LEVEL || 'full';
+    $('#set-truncate').value = String(s.TRUNCATE_ENABLED !== false);
+    $('#set-truncate-threshold').value = s.TRUNCATE_THRESHOLD || 0.7;
+    $('#set-cache').value = String(s.CACHE_ENABLED !== false);
+    $('#set-cache-ttl').value = (s.CACHE_TTL_MS || 300000) / 1000;
+    $('#set-cache-size').value = s.CACHE_MAX_SIZE || 100;
 }
 $('#set-save').addEventListener('click', async () => {
     const patch = {
@@ -578,7 +583,12 @@ $('#set-token-save').addEventListener('click', async () => {
     const patch = {
         RTK_ENABLED: $('#set-rtk').value === 'true',
         CAVEMAN_ENABLED: $('#set-caveman').value === 'true',
-        CAVEMAN_LEVEL: $('#set-caveman-level').value
+        CAVEMAN_LEVEL: $('#set-caveman-level').value,
+        TRUNCATE_ENABLED: $('#set-truncate').value === 'true',
+        TRUNCATE_THRESHOLD: parseFloat($('#set-truncate-threshold').value),
+        CACHE_ENABLED: $('#set-cache').value === 'true',
+        CACHE_TTL_MS: parseInt($('#set-cache-ttl').value) * 1000,
+        CACHE_MAX_SIZE: parseInt($('#set-cache-size').value)
     };
     try {
         await api('PUT', '/api/settings', patch);

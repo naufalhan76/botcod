@@ -66,6 +66,13 @@ const DEFAULTS = {
     MODEL_CAPS_OVERRIDES: {},
     // RTK Token Saver — compress tool_result content before forwarding (default ON)
     RTK_ENABLED: true,
+    // History Truncation — auto-drop middle messages when token limit is reached
+    TRUNCATE_ENABLED: true,
+    TRUNCATE_THRESHOLD: 0.7,
+    // Response Cache — cache identical prompts
+    CACHE_ENABLED: true,
+    CACHE_TTL_MS: 300000,
+    CACHE_MAX_SIZE: 100,
     // Caveman Mode — inject terse system prompt to reduce output tokens (default ON)
     CAVEMAN_ENABLED: true,
     // Caveman intensity: 'lite' | 'full' | 'ultra'

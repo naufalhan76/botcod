@@ -517,6 +517,32 @@
                         <option value="ultra">Ultra (~65% savings, bare minimum words)</option>
                     </select>
                 </label>
+                <label>History Truncation
+                    <select id="set-truncate">
+                        <option value="true">ON (auto-drop middle messages when limit reached)</option>
+                        <option value="false">OFF</option>
+                    </select>
+                    <span class="muted">Keeps system prompt and latest messages intact.</span>
+                </label>
+                <label>Truncation Threshold (0.3-0.95)
+                    <input type="number" id="set-truncate-threshold" step="0.05" min="0.3" max="0.95" />
+                    <span class="muted">Fraction of context limit to trigger truncation (default: 0.7)</span>
+                </label>
+                <label>Response Cache
+                    <select id="set-cache">
+                        <option value="true">ON (serve cached responses for identical prompts)</option>
+                        <option value="false">OFF</option>
+                    </select>
+                    <span class="muted">Caches identical model/prompt combos for a short time.</span>
+                </label>
+                <label>Cache TTL (seconds)
+                    <input type="number" id="set-cache-ttl" min="10" max="3600" />
+                    <span class="muted">How long to keep a response cached (default: 300)</span>
+                </label>
+                <label>Cache Max Size
+                    <input type="number" id="set-cache-size" min="10" max="1000" />
+                    <span class="muted">Max number of responses to keep in cache (default: 100)</span>
+                </label>
                 <div>
                     <button id="set-token-save" class="btn primary">Save token settings</button>
                 </div>
