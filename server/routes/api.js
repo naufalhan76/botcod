@@ -390,6 +390,11 @@ router.get('/settings', (req, res) => {
         RTK_ENABLED: cfg.RTK_ENABLED !== false,
         CAVEMAN_ENABLED: cfg.CAVEMAN_ENABLED !== false,
         CAVEMAN_LEVEL: cfg.CAVEMAN_LEVEL || 'full',
+        TRUNCATE_ENABLED: cfg.TRUNCATE_ENABLED !== false,
+        TRUNCATE_THRESHOLD: cfg.TRUNCATE_THRESHOLD || 0.7,
+        CACHE_ENABLED: cfg.CACHE_ENABLED !== false,
+        CACHE_TTL_MS: cfg.CACHE_TTL_MS || 300000,
+        CACHE_MAX_SIZE: cfg.CACHE_MAX_SIZE || 100,
         PORT: cfg.PORT
     });
 });
