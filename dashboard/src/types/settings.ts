@@ -14,6 +14,11 @@ export interface Settings {
   RTK_ENABLED: boolean
   CAVEMAN_ENABLED: boolean
   CAVEMAN_LEVEL: string
+  TRUNCATE_ENABLED: boolean
+  TRUNCATE_THRESHOLD: number
+  CACHE_ENABLED: boolean
+  CACHE_TTL_MS: number
+  CACHE_MAX_SIZE: number
   PORT: number
 }
 

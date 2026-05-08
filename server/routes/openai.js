@@ -14,6 +14,8 @@ import { trackAiRequest } from '../lib/history.js';
 import { applyBodyFilters } from '../lib/contentFilter.js';
 import { applyRtk } from '../lib/rtk/index.js';
 import { applyCaveman } from '../lib/caveman.js';
+import { applyHistoryTruncation } from '../lib/historyTruncate.js';
+import { applyResponseCache, storeResponseCache } from '../lib/responseCache.js';
 
 const router = Router();
 
@@ -53,8 +55,22 @@ router.post('/chat/completions', async (req, res) => {
     // Apply content filters (strip fingerprints from messages before forwarding)
     applyBodyFilters(body);
 
-    // RTK Token Saver — compress tool_result content (default ON)
     const cfg = getConfig();
+
+    // Response Cache — check BEFORE mutations (hash raw input for consistency)
+    let cacheKey = null;
+    if (cfg.CACHE_ENABLED !== false) {
+        const cacheResult = applyResponseCache(body);
+        if (cacheResult.hit) {
+            history.set({ cache_hit: true });
+            res.set('X-Cache', 'HIT');
+            return res.json(cacheResult.cachedResponse);
+        }
+        cacheKey = cacheResult.key; // save for storing after response
+        if (cacheKey) res.set('X-Cache', 'MISS');
+    }
+
+    // RTK Token Saver — compress tool_result content (default ON)
     if (cfg.RTK_ENABLED !== false) {
         applyRtk(body);
     }
@@ -64,6 +80,15 @@ router.post('/chat/completions', async (req, res) => {
         applyCaveman(body, cfg.CAVEMAN_LEVEL || 'full');
     }
 
+    // History Truncation — drop old messages when approaching context limit
+    let truncateResult = null;
+    if (cfg.TRUNCATE_ENABLED !== false) {
+        truncateResult = applyHistoryTruncation(body, { threshold: cfg.TRUNCATE_THRESHOLD || 0.7 });
+        if (truncateResult.truncated) {
+            history.set({ tokens_saved: truncateResult.tokensSaved });
+        }
+    }
+
     const provider = providerForModel(body.model);
     history.set({ model: body.model, provider });
     if (!provider) {
@@ -71,6 +96,27 @@ router.post('/chat/completions', async (req, res) => {
         return res.status(400).json({
             error: { message: `unknown model: ${body.model}`, type: 'invalid_request_error' }
         });
+    }
+
+    // For non-streaming requests, intercept response to store in cache
+    if (cacheKey && body.stream === false) {
+        const origEnd = res.end.bind(res);
+        const origWriteHead = res.writeHead.bind(res);
+        let capturedStatus = 200;
+        res.writeHead = (status, ...args) => {
+            capturedStatus = status;
+            return origWriteHead(status, ...args);
+        };
+        res.end = (data, ...args) => {
+            // Only cache successful responses
+            if (capturedStatus >= 200 && capturedStatus < 400 && data) {
+                try {
+                    const parsed = JSON.parse(typeof data === 'string' ? data : data.toString());
+                    if (!parsed.error) storeResponseCache(cacheKey, parsed);
+                } catch { /* ignore parse errors */ }
+            }
+            return origEnd(data, ...args);
+        };
     }
 
     if (provider === 'codebuddy') {

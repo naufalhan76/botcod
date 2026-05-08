@@ -10,6 +10,7 @@ let _requestBuckets = []; // [{ timestamp, count, success, error }]
 let _tokenStats = []; // [{ timestamp, model, provider, promptTokens, completionTokens }]
 let _latencyStats = []; // [{ timestamp, provider, latencyMs, success }]
 let _providerHealth = new Map(); // provider -> { lastCheck, consecutiveErrors, status }
+let _tokenSavings = []; // [{ timestamp, tokensSaved, cacheHit }]
 
 function getCurrentBucketTimestamp() {
   const now = Date.now();
@@ -29,7 +30,7 @@ function getOrCreateBucket(timestamp) {
   return bucket;
 }
 
-export function trackRequest({ model, provider, promptTokens = 0, completionTokens = 0, latencyMs = 0, success = true }) {
+export function trackRequest({ model, provider, promptTokens = 0, completionTokens = 0, tokensSaved = 0, cacheHit = false, latencyMs = 0, success = true }) {
   const ts = getCurrentBucketTimestamp();
   
   // Request volume
@@ -41,6 +42,12 @@ export function trackRequest({ model, provider, promptTokens = 0, completionToke
   // Token stats
   _tokenStats.push({ timestamp: ts, model, provider, promptTokens, completionTokens });
   if (_tokenStats.length > 10000) _tokenStats = _tokenStats.slice(-5000);
+  
+  // Token savings
+  if (tokensSaved > 0 || cacheHit) {
+    _tokenSavings.push({ timestamp: ts, tokensSaved, cacheHit });
+    if (_tokenSavings.length > 10000) _tokenSavings = _tokenSavings.slice(-5000);
+  }
   
   // Latency
   _latencyStats.push({ timestamp: ts, provider, latencyMs, success });
@@ -132,4 +139,17 @@ export function getProviderHealth() {
     });
   }
   return { providers };
+}
+
+export function getTokenSavingsStats(period = '24h') {
+  const items = filterByPeriod(_tokenSavings, period);
+  let totalTokensSaved = 0;
+  let cacheHits = 0;
+  let cacheMisses = 0;
+  for (const item of items) {
+    totalTokensSaved += item.tokensSaved || 0;
+    if (item.cacheHit) cacheHits++;
+    else cacheMisses++;
+  }
+  return { totalTokensSaved, cacheHits, cacheMisses, entries: items.length };
 }

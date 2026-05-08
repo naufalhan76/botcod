@@ -33,6 +33,11 @@ export default function SettingsPage() {
     RTK_ENABLED: false,
     CAVEMAN_ENABLED: false,
     CAVEMAN_LEVEL: 'full',
+    TRUNCATE_ENABLED: true,
+    TRUNCATE_THRESHOLD: 0.7,
+    CACHE_ENABLED: true,
+    CACHE_TTL_MS: 300000,
+    CACHE_MAX_SIZE: 100,
   });
 
   useEffect(() => {
@@ -49,6 +54,11 @@ export default function SettingsPage() {
         RTK_ENABLED: settings.RTK_ENABLED || false,
         CAVEMAN_ENABLED: settings.CAVEMAN_ENABLED || false,
         CAVEMAN_LEVEL: settings.CAVEMAN_LEVEL || 'full',
+        TRUNCATE_ENABLED: settings.TRUNCATE_ENABLED !== false,
+        TRUNCATE_THRESHOLD: settings.TRUNCATE_THRESHOLD || 0.7,
+        CACHE_ENABLED: settings.CACHE_ENABLED !== false,
+        CACHE_TTL_MS: settings.CACHE_TTL_MS || 300000,
+        CACHE_MAX_SIZE: settings.CACHE_MAX_SIZE || 100,
       });
     }
   }, [settings]);
@@ -82,6 +92,21 @@ export default function SettingsPage() {
     }
     if (formData.CAVEMAN_LEVEL !== settings?.CAVEMAN_LEVEL) {
       payload.CAVEMAN_LEVEL = formData.CAVEMAN_LEVEL;
+    }
+    if (formData.TRUNCATE_ENABLED !== (settings?.TRUNCATE_ENABLED !== false)) {
+      payload.TRUNCATE_ENABLED = formData.TRUNCATE_ENABLED;
+    }
+    if (formData.TRUNCATE_THRESHOLD !== (settings?.TRUNCATE_THRESHOLD || 0.7)) {
+      payload.TRUNCATE_THRESHOLD = formData.TRUNCATE_THRESHOLD;
+    }
+    if (formData.CACHE_ENABLED !== (settings?.CACHE_ENABLED !== false)) {
+      payload.CACHE_ENABLED = formData.CACHE_ENABLED;
+    }
+    if (formData.CACHE_TTL_MS !== (settings?.CACHE_TTL_MS || 300000)) {
+      payload.CACHE_TTL_MS = formData.CACHE_TTL_MS;
+    }
+    if (formData.CACHE_MAX_SIZE !== (settings?.CACHE_MAX_SIZE || 100)) {
+      payload.CACHE_MAX_SIZE = formData.CACHE_MAX_SIZE;
     }
 
     if (Object.keys(payload).length === 0) {
@@ -275,6 +300,101 @@ export default function SettingsPage() {
                       <SelectItem value="ultra">Ultra</SelectItem>
                     </SelectContent>
                   </Select>
+                </div>
+              )}
+            </CardContent>
+          </Card>
+
+          <Card>
+            <CardHeader>
+              <CardTitle>Token Saver</CardTitle>
+              <CardDescription>Reduce token usage transparently</CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-6">
+              <div className="flex items-center justify-between">
+                <div>
+                  <Label htmlFor="truncate">History Truncation</Label>
+                  <p className="text-sm text-muted-foreground">
+                    Auto-drop old messages when approaching context limit
+                  </p>
+                </div>
+                <Switch
+                  id="truncate"
+                  checked={formData.TRUNCATE_ENABLED}
+                  onCheckedChange={(checked) =>
+                    setFormData({ ...formData, TRUNCATE_ENABLED: checked })
+                  }
+                />
+              </div>
+
+              {formData.TRUNCATE_ENABLED && (
+                <div>
+                  <Label htmlFor="truncate-threshold">
+                    Truncation Threshold ({Math.round(formData.TRUNCATE_THRESHOLD * 100)}%)
+                  </Label>
+                  <p className="text-sm text-muted-foreground mb-2">
+                    Trigger when messages exceed this % of context window
+                  </p>
+                  <Input
+                    id="truncate-threshold"
+                    type="number"
+                    step={0.05}
+                    min={0.3}
+                    max={0.95}
+                    value={formData.TRUNCATE_THRESHOLD}
+                    onChange={(e) =>
+                      setFormData({ ...formData, TRUNCATE_THRESHOLD: parseFloat(e.target.value) || 0.7 })
+                    }
+                  />
+                </div>
+              )}
+
+              <Separator />
+
+              <div className="flex items-center justify-between">
+                <div>
+                  <Label htmlFor="cache">Response Cache</Label>
+                  <p className="text-sm text-muted-foreground">
+                    Cache identical non-streaming requests
+                  </p>
+                </div>
+                <Switch
+                  id="cache"
+                  checked={formData.CACHE_ENABLED}
+                  onCheckedChange={(checked) =>
+                    setFormData({ ...formData, CACHE_ENABLED: checked })
+                  }
+                />
+              </div>
+
+              {formData.CACHE_ENABLED && (
+                <div className="space-y-4">
+                  <div>
+                    <Label htmlFor="cache-ttl">Cache TTL (seconds)</Label>
+                    <Input
+                      id="cache-ttl"
+                      type="number"
+                      min={10}
+                      max={3600}
+                      value={Math.round(formData.CACHE_TTL_MS / 1000)}
+                      onChange={(e) =>
+                        setFormData({ ...formData, CACHE_TTL_MS: (parseInt(e.target.value) || 300) * 1000 })
+                      }
+                    />
+                  </div>
+                  <div>
+                    <Label htmlFor="cache-size">Cache Max Size</Label>
+                    <Input
+                      id="cache-size"
+                      type="number"
+                      min={10}
+                      max={1000}
+                      value={formData.CACHE_MAX_SIZE}
+                      onChange={(e) =>
+                        setFormData({ ...formData, CACHE_MAX_SIZE: parseInt(e.target.value) || 100 })
+                      }
+                    />
+                  </div>
                 </div>
               )}
             </CardContent>

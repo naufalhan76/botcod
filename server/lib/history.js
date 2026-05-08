@@ -135,15 +135,19 @@ export function trackAiRequest(req, res, meta = {}) {
             response_code: ok ? 'success' : 'error',
             ok,
             aborted,
-            duration_ms: durationMs
+            duration_ms: durationMs,
+            tokens_saved: current.tokens_saved || 0,
+            cache_hit: current.cache_hit || false
         });
         
         // Track stats for charts
         trackRequest({
             model: current.model,
             provider: current.provider,
-            promptTokens: 0, // TODO: extract from response if available
+            promptTokens: 0,
             completionTokens: 0,
+            tokensSaved: current.tokens_saved || 0,
+            cacheHit: current.cache_hit || false,
             latencyMs: durationMs,
             success: ok
         });
