@@ -11,6 +11,28 @@ import { getConfig, getEffectiveModelCaps } from '../../config.js';
 import { resolveKiroModelId } from './models.js';
 import { EventStreamParser } from './eventstream.js';
 import {
+    KIRO_MAX_TOOL_NAME_LENGTH,
+    KIRO_MAX_TOOLS,
+    convertLegacyFunctionsToTools,
+    convertToolResultsToKiroFormat,
+    convertKiroToolUseToOpenAI,
+    convertToolsToKiroSpec,
+    deduplicateTools,
+    sanitizeOrphanToolResults,
+    shortenToolName
+} from './tools.js';
+import { processToolSchemas } from './schema.js';
+import { scoreAndLimitTools } from './scoring.js';
+import {
+    buildKiroHistoryFromUnified,
+    ensureAlternatingRoles,
+    ensureAssistantBeforeToolResults,
+    ensureFirstMessageIsUser,
+    estimateTokens,
+    estimateToolTokenCost,
+    smartTruncateHistory
+} from './history.js';
+import {
     pickNextKiroCred,
     markKiroUsed,
     markKiroCooldown,
@@ -72,10 +94,10 @@ function buildKiroRequest(openaiBody) {
     const modelId = resolveKiroModelId(friendlyModel);
     if (!modelId) throw new Error(`unknown kiro model: ${friendlyModel}`);
 
-    const msgs = (openaiBody.messages || []).map(m => ({
-        role: m.role,
-        content: typeof m.content === 'string' ? m.content : extractText(m.content)
-    }));
+    const rawMessages = Array.isArray(openaiBody.messages) ? openaiBody.messages : [];
+    const msgs = rawMessages.map(normalizeOpenAIMessage);
+
+    const tools = buildKiroTools(openaiBody, msgs);
 
     // Pull system messages and prefix the first user message.
     let systemText = msgs.filter(m => m.role === 'system').map(m => m.content).join('\n').trim();
@@ -84,15 +106,21 @@ function buildKiroRequest(openaiBody) {
             ? `${KIRO_THINKING_PROMPT}\n\n${systemText}`
             : KIRO_THINKING_PROMPT;
     }
-    const turns = msgs.filter(m => m.role !== 'system');
+    let turns = msgs.filter(m => m.role !== 'system');
 
     if (turns.length === 0) {
         throw new Error('no user/assistant messages provided');
     }
 
+    turns = ensureFirstMessageIsUser(turns);
+    turns = ensureAssistantBeforeToolResults(turns);
+
+    const knownToolUseIds = collectToolUseIds(turns);
+    turns = sanitizeOrphanToolResults(turns, knownToolUseIds);
+    turns = ensureAlternatingRoles(turns);
+
     // Last turn must be user; everything before is history.
-    const lastTurn = turns[turns.length - 1];
-    if (lastTurn.role !== 'user') {
+    if (turns[turns.length - 1]?.role !== 'user') {
         // CodeBuddy-equivalent fallback: append a stub user message.
         turns.push({ role: 'user', content: '(continue)' });
     }
@@ -106,15 +134,15 @@ function buildKiroRequest(openaiBody) {
             : last.content;
     })();
 
-    const history = [];
-    for (let i = 0; i < turns.length - 1; i++) {
-        const t = turns[i];
-        if (t.role === 'user') {
-            history.push({ userInputMessage: { content: t.content, modelId } });
-        } else if (t.role === 'assistant') {
-            history.push({ assistantResponseMessage: { content: t.content || '' } });
-        }
-    }
+    const { historyMessages, currentToolMessages } = splitHistoryAndCurrentToolResults(turns);
+    const currentToolResults = convertToolResultsToKiroFormat(currentToolMessages, knownToolUseIds);
+    const history = truncateHistoryForModel(
+        buildKiroHistoryFromUnified(historyMessages, modelId),
+        friendlyModel,
+        currentText,
+        tools,
+        currentToolResults
+    );
 
     return {
         conversationState: {
@@ -125,11 +153,95 @@ function buildKiroRequest(openaiBody) {
                 userInputMessage: {
                     content: currentText,
                     modelId,
-                    userInputMessageContext: { tools: [], toolResults: [] }
+                    userInputMessageContext: { tools, toolResults: currentToolResults }
                 }
             }
         }
     };
+}
+
+function buildKiroTools(openaiBody, messages) {
+    const modernTools = Array.isArray(openaiBody.tools) ? openaiBody.tools : [];
+    const legacyTools = convertLegacyFunctionsToTools(openaiBody.functions);
+    let tools = [...modernTools, ...legacyTools];
+
+    if (tools.length === 0) return [];
+
+    tools = deduplicateTools(tools);
+    tools = processToolSchemas(tools);
+    tools = scoreAndLimitTools(tools, messages, KIRO_MAX_TOOLS).selected;
+    tools = tools.map(tool => {
+        const fn = tool?.function;
+        if (!fn?.name || String(fn.name).length <= KIRO_MAX_TOOL_NAME_LENGTH) return tool;
+        return { ...tool, function: { ...fn, name: shortenToolName(fn.name, KIRO_MAX_TOOL_NAME_LENGTH) } };
+    });
+
+    return convertToolsToKiroSpec(tools).map(wrapToolInputSchemaJson);
+}
+
+function wrapToolInputSchemaJson(tool) {
+    const spec = tool?.toolSpecification;
+    if (!spec || spec.inputSchema?.json) return tool;
+    return {
+        ...tool,
+        toolSpecification: {
+            ...spec,
+            inputSchema: { json: spec.inputSchema || { type: 'object', properties: {} } }
+        }
+    };
+}
+
+function normalizeOpenAIMessage(message) {
+    const normalized = {
+        role: message?.role,
+        content: typeof message?.content === 'string' ? message.content : extractText(message?.content)
+    };
+
+    if (Array.isArray(message?.tool_calls)) normalized.tool_calls = message.tool_calls;
+    if (Array.isArray(message?.toolCalls)) normalized.toolCalls = message.toolCalls;
+    if (message?.tool_call_id) normalized.tool_call_id = message.tool_call_id;
+    if (message?.toolUseId) normalized.toolUseId = message.toolUseId;
+    if (message?.name) normalized.name = message.name;
+
+    return normalized;
+}
+
+function collectToolUseIds(messages) {
+    const ids = new Set();
+    for (const message of Array.isArray(messages) ? messages : []) {
+        const calls = Array.isArray(message?.tool_calls)
+            ? message.tool_calls
+            : Array.isArray(message?.toolCalls)
+                ? message.toolCalls
+                : [];
+        for (const call of calls) {
+            const id = call?.id || call?.toolUseId || call?.tool_call_id;
+            if (id) ids.add(String(id));
+        }
+    }
+    return ids;
+}
+
+function splitHistoryAndCurrentToolResults(turns) {
+    const historyMessages = turns.slice(0, -1);
+    const currentToolMessages = [];
+
+    while (historyMessages.length > 0 && historyMessages[historyMessages.length - 1]?.role === 'tool') {
+        currentToolMessages.unshift(historyMessages.pop());
+    }
+
+    return { historyMessages, currentToolMessages };
+}
+
+function truncateHistoryForModel(history, friendlyModel, currentText, tools, currentToolResults) {
+    const caps = getEffectiveModelCaps()[friendlyModel];
+    const contextLimit = caps?.limit?.context;
+    if (!Number.isFinite(contextLimit)) return history;
+
+    const outputReserve = Number.isFinite(caps?.limit?.output) ? caps.limit.output : 0;
+    const tokenBudget = Math.max(0, contextLimit - outputReserve - estimateTokens(currentText));
+    const fixedCost = estimateToolTokenCost(tools) + estimateTokens(JSON.stringify(currentToolResults || []));
+    return smartTruncateHistory(history, tokenBudget, fixedCost);
 }
 
 function extractText(parts) {
@@ -175,6 +287,22 @@ function frameToOpenAIDelta(frame, ctx) {
             created: ctx.created,
             model: ctx.model,
             choices: [{ index: 0, delta, finish_reason: null }]
+        };
+    }
+
+    if (eventType === 'toolUseEvent') {
+        ctx._toolCallIndex = (ctx._toolCallIndex ?? -1) + 1;
+        ctx._hasToolCalls = true;
+        return {
+            id: ctx.responseId,
+            object: 'chat.completion.chunk',
+            created: ctx.created,
+            model: ctx.model,
+            choices: [{
+                index: 0,
+                delta: { tool_calls: [convertKiroToolUseToOpenAI(payload, ctx._toolCallIndex)] },
+                finish_reason: null
+            }]
         };
     }
 
@@ -343,7 +471,7 @@ async function streamFrames(upstreamBody, res, ctx) {
         object: 'chat.completion.chunk',
         created: ctx.created,
         model: ctx.model,
-        choices: [{ index: 0, delta: {}, finish_reason: 'stop' }]
+        choices: [{ index: 0, delta: {}, finish_reason: ctx._hasToolCalls ? 'tool_calls' : 'stop' }]
     };
     res.write(`data: ${JSON.stringify(stopChunk)}\n\n`);
     res.write('data: [DONE]\n\n');
@@ -354,11 +482,20 @@ function aggregateNonStream(buf, ctx) {
     const parser = new EventStreamParser();
     parser.push(buf);
     let raw = '';
+    const toolCalls = [];
     for (const frame of parser.drain()) {
-        if (frame.headers[':event-type'] === 'assistantResponseEvent') {
+        const eventType = frame.headers[':event-type'];
+        if (eventType === 'assistantResponseEvent') {
             try {
                 const j = JSON.parse(frame.payload.toString('utf-8'));
                 if (typeof j.content === 'string') raw += j.content;
+            } catch {}
+        }
+        if (eventType === 'toolUseEvent') {
+            try {
+                const j = JSON.parse(frame.payload.toString('utf-8'));
+                const { index, ...toolCall } = convertKiroToolUseToOpenAI(j, toolCalls.length);
+                toolCalls.push(toolCall);
             } catch {}
         }
     }
@@ -368,12 +505,13 @@ function aggregateNonStream(buf, ctx) {
     const content = raw.replace(thinkingRe, '').trim();
     const message = { role: 'assistant', content };
     if (reasoning) message.reasoning_content = reasoning;
+    if (toolCalls.length > 0) message.tool_calls = toolCalls;
     return {
         id: ctx.responseId,
         object: 'chat.completion',
         created: ctx.created,
         model: ctx.model,
-        choices: [{ index: 0, message, finish_reason: 'stop' }],
+        choices: [{ index: 0, message, finish_reason: toolCalls.length > 0 ? 'tool_calls' : 'stop' }],
         usage: null
     };
 }
