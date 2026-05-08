@@ -79,13 +79,20 @@ export function convertKiroToolUseToOpenAI(toolUseEvent, index = 0) {
     const toolUse = toolUseEvent?.toolUse || toolUseEvent || {};
     const id = String(toolUse.toolUseId || toolUse.id || '').trim();
     const name = shortenToolName(String(toolUse.name || '').trim(), KIRO_MAX_TOOL_NAME_LENGTH);
+    let argumentsStr;
+    try {
+        argumentsStr = JSON.stringify(isPlainObject(toolUse.input) ? toolUse.input : {});
+    } catch (err) {
+        // Edge case: malformed input (circular refs, etc.) → pass as-is string
+        argumentsStr = typeof toolUse.input === 'string' ? toolUse.input : '{}';
+    }
     return {
         index,
         id,
         type: 'function',
         function: {
             name,
-            arguments: JSON.stringify(isPlainObject(toolUse.input) ? toolUse.input : {})
+            arguments: argumentsStr
         }
     };
 }

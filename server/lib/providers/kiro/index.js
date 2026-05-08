@@ -137,6 +137,7 @@ function buildKiroRequest(openaiBody) {
 
     const { historyMessages, currentToolMessages } = splitHistoryAndCurrentToolResults(turns);
     const currentToolResults = convertToolResultsToKiroFormat(currentToolMessages, knownToolUseIds);
+    log(`split: history=${historyMessages.length} current_tools=${currentToolMessages.length} known_ids=${knownToolUseIds.size}`);
     logToolRequest({ tools, currentToolResults, knownToolUseIds, thinkingEnabled });
     if (openaiBody.tool_choice != null) {
         log(`tool_choice present (stripped): ${JSON.stringify(openaiBody.tool_choice)}`);
@@ -172,6 +173,16 @@ function buildKiroTools(openaiBody, messages) {
     const modernTools = Array.isArray(openaiBody.tools) ? openaiBody.tools : [];
     const legacyTools = convertLegacyFunctionsToTools(openaiBody.functions);
     let tools = [...modernTools, ...legacyTools];
+
+    if (tools.length === 0) return [];
+
+    // Filter out malformed tools early
+    tools = tools.filter(tool => {
+        const fn = tool?.function;
+        if (!fn || typeof fn !== 'object') return false;
+        if (!fn.name || typeof fn.name !== 'string' || fn.name.trim().length === 0) return false;
+        return true;
+    });
 
     if (tools.length === 0) return [];
 
@@ -227,8 +238,25 @@ function normalizeOpenAIMessage(message) {
         content: typeof message?.content === 'string' ? message.content : extractText(message?.content)
     };
 
-    if (Array.isArray(message?.tool_calls)) normalized.tool_calls = message.tool_calls;
-    if (Array.isArray(message?.toolCalls)) normalized.toolCalls = message.toolCalls;
+    // Filter out malformed tool_calls
+    if (Array.isArray(message?.tool_calls)) {
+        const validCalls = message.tool_calls.filter(call => {
+            if (!call || typeof call !== 'object') return false;
+            const name = call?.function?.name;
+            if (!name || typeof name !== 'string' || name.trim().length === 0) return false;
+            return true;
+        });
+        if (validCalls.length > 0) normalized.tool_calls = validCalls;
+    }
+    if (Array.isArray(message?.toolCalls)) {
+        const validCalls = message.toolCalls.filter(call => {
+            if (!call || typeof call !== 'object') return false;
+            const name = call?.function?.name || call?.name;
+            if (!name || typeof name !== 'string' || name.trim().length === 0) return false;
+            return true;
+        });
+        if (validCalls.length > 0) normalized.toolCalls = validCalls;
+    }
     if (message?.tool_call_id) normalized.tool_call_id = message.tool_call_id;
     if (message?.toolUseId) normalized.toolUseId = message.toolUseId;
     if (message?.name) normalized.name = message.name;
@@ -490,14 +518,20 @@ export async function kiroChatCompletion(openaiBody, res) {
 async function streamFrames(upstreamBody, res, ctx) {
     const reader = upstreamBody.getReader();
     const parser = new EventStreamParser();
-    while (true) {
-        const { value, done } = await reader.read();
-        if (done) break;
-        parser.push(value);
-        for (const frame of parser.drain()) {
-            const chunk = frameToOpenAIDelta(frame, ctx);
-            if (chunk) res.write(`data: ${JSON.stringify(chunk)}\n\n`);
+    try {
+        while (true) {
+            const { value, done } = await reader.read();
+            if (done) break;
+            if (!value || value.length === 0) continue;
+            parser.push(value);
+            for (const frame of parser.drain()) {
+                const chunk = frameToOpenAIDelta(frame, ctx);
+                if (chunk) res.write(`data: ${JSON.stringify(chunk)}\n\n`);
+            }
         }
+    } catch (err) {
+        log(`stream read error: ${err.message}`);
+        throw err;
     }
     // Flush any held-back trailing chars from the thinking demux. We hold back
     // up to 16 chars per chunk while looking for tag boundaries, so the very
