@@ -8,7 +8,9 @@
     "start": "node index.js",
     "sambungin": "node server/index.js",
     "dev": "node server/index.js",
+    "dev:public": "node --input-type=module -e \"process.env.SAMBUNGIN_HOST='0.0.0.0'; import('./server/index.js')\"",
     "server": "node server/index.js",
+    "server:public": "node --input-type=module -e \"process.env.SAMBUNGIN_HOST='0.0.0.0'; import('./server/index.js')\"",
     "build": "npm run build --prefix dashboard",
     "postinstall": "cd dashboard && npm install"
   },

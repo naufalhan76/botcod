@@ -21,6 +21,10 @@ const cfg = getConfig();
 const app = express();
 app.use(express.json({ limit: '10mb' }));
 
+function isWildcardHost(host) {
+    return host === '0.0.0.0' || host === '::';
+}
+
 // Serve new Next.js dashboard (static export from dashboard/out/).
 // Falls back to legacy vanilla dashboard if new build doesn't exist.
 import fs from 'fs';
@@ -80,9 +84,16 @@ startWatcher();
 startTempmailPoller();
 
 const server = app.listen(cfg.PORT, cfg.HOST, () => {
-    console.log(`\nsambungin server listening on http://${cfg.HOST}:${cfg.PORT}`);
-    console.log(`  Dashboard:  http://${cfg.HOST}:${cfg.PORT}/`);
-    console.log(`  OpenAI API: http://${cfg.HOST}:${cfg.PORT}/v1`);
+    if (isWildcardHost(cfg.HOST)) {
+        console.log(`\nsambungin server listening on all interfaces (${cfg.HOST}:${cfg.PORT})`);
+        console.log(`  Dashboard:  http://<VPS_IP>:${cfg.PORT}/`);
+        console.log(`  OpenAI API: http://<VPS_IP>:${cfg.PORT}/v1`);
+        console.log('  Note: replace <VPS_IP> with your server public IP or domain.');
+    } else {
+        console.log(`\nsambungin server listening on http://${cfg.HOST}:${cfg.PORT}`);
+        console.log(`  Dashboard:  http://${cfg.HOST}:${cfg.PORT}/`);
+        console.log(`  OpenAI API: http://${cfg.HOST}:${cfg.PORT}/v1`);
+    }
     console.log(`  Models:     ${cfg.EXPOSED_MODELS.join(', ')}\n`);
 });
 
