@@ -60,7 +60,9 @@ async function main() {
     console.log('');
     const modeChoice = readlineSync.question(chalk.yellow('Enter choice: '));
     const mode = parseInt(modeChoice);
-    const VALID_MODES = [1, 2, 3, 4, 6, 7, 12, 14, 15];
+    // Includes 8, 10, 11 so the bit-pair guard below produces the more helpful
+    // "Kiro upgrade (bit 8) requires Kiro signup (bit 4)" error for those combos.
+    const VALID_MODES = [1, 2, 3, 4, 6, 7, 8, 10, 11, 12, 14, 15];
 
     if (!VALID_MODES.includes(mode)) {
         console.log(chalk.red(`[ERROR] Invalid choice. Valid modes: ${VALID_MODES.join(', ')}`));

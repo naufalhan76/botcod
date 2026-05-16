@@ -9,7 +9,10 @@ import { getConfig } from './config.js';
 import { addKiroCred } from './providers/kiro/credentials.js';
 import path from 'path';
 
-const VALID_MODES = new Set([1, 2, 3, 4, 5, 6, 7, 12, 13, 14, 15]);
+// Includes 8, 10, 11 so the bit-pair guard below produces the more helpful
+// "Kiro upgrade (bit 8) requires Kiro signup (bit 4)" error for those combos
+// instead of the generic "mode must be one of" message.
+const VALID_MODES = new Set([1, 2, 3, 4, 5, 6, 7, 8, 10, 11, 12, 13, 14, 15]);
 
 const _jobs = new Map(); // id -> Job
 
