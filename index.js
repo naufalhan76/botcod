@@ -51,12 +51,26 @@ async function main() {
     console.log(chalk.white('  1) Unlucid.ai only'));
     console.log(chalk.white('  2) CodeBuddy.ai only'));
     console.log(chalk.white('  3) Unlucid.ai + CodeBuddy.ai (both)'));
+    console.log(chalk.white('  4) Kiro only'));
+    console.log(chalk.white('  6) CodeBuddy + Kiro'));
+    console.log(chalk.white('  7) Unlucid + CodeBuddy + Kiro'));
+    console.log(chalk.white(' 12) Kiro + auto-upgrade (skip if charge > $0)'));
+    console.log(chalk.white(' 14) CodeBuddy + Kiro + Kiro upgrade'));
+    console.log(chalk.white(' 15) Unlucid + CodeBuddy + Kiro + Kiro upgrade'));
     console.log('');
-    const modeChoice = readlineSync.question(chalk.yellow('Enter choice (1/2/3): '));
+    const modeChoice = readlineSync.question(chalk.yellow('Enter choice: '));
     const mode = parseInt(modeChoice);
+    // Includes 8, 10, 11 so the bit-pair guard below produces the more helpful
+    // "Kiro upgrade (bit 8) requires Kiro signup (bit 4)" error for those combos.
+    const VALID_MODES = [1, 2, 3, 4, 6, 7, 8, 10, 11, 12, 14, 15];
 
-    if (![1, 2, 3].includes(mode)) {
-        console.log(chalk.red('[ERROR] Invalid choice. Please enter 1, 2, or 3.'));
+    if (!VALID_MODES.includes(mode)) {
+        console.log(chalk.red(`[ERROR] Invalid choice. Valid modes: ${VALID_MODES.join(', ')}`));
+        process.exit(1);
+    }
+
+    if ((mode & 8) && !(mode & 4)) {
+        console.log(chalk.red('[ERROR] Kiro upgrade (bit 8) requires Kiro signup (bit 4) to also be enabled.'));
         process.exit(1);
     }
 
@@ -90,14 +104,22 @@ async function main() {
         const failed = results.filter(r => !r.success);
         console.log(chalk.green(`    ✓ Success: ${successful.length}/${results.length}`));
         console.log(chalk.red(`    ✗ Failed:  ${failed.length}/${results.length}`));
-        if (mode === 1 || mode === 3) {
+        if (mode & 1) {
             const okCount = results.filter(r => r.unlucidSuccess).length;
             console.log(chalk.cyan(`    [UNLUCID] Success: ${okCount}/${results.length}`));
         }
-        if (mode === 2 || mode === 3) {
+        if (mode & 2) {
             const okCount = results.filter(r => r.codebuddySuccess).length;
             const keys = results.filter(r => r.apiKey).length;
             console.log(chalk.cyan(`    [CODEBUDDY] Success: ${okCount}/${results.length} | Keys: ${keys}`));
+        }
+        if (mode & 4) {
+            const okCount = results.filter(r => r.kiroSuccess).length;
+            console.log(chalk.cyan(`    [KIRO] Success: ${okCount}/${results.length}`));
+        }
+        if (mode & 8) {
+            const okCount = results.filter(r => r.kiroUpgradeSuccess).length;
+            console.log(chalk.cyan(`    [KIRO-UPGRADE] Success: ${okCount}/${results.length}`));
         }
         if (failedFiles && Object.keys(failedFiles).length > 0) {
             console.log(chalk.yellow('\n    [FAILED ACCOUNTS SAVED]'));

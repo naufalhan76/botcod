@@ -39,6 +39,9 @@ const BOT_MODES = [
   { value: '6', label: 'CodeBuddy + Kiro' },
   { value: '2', label: 'CodeBuddy only' },
   { value: '4', label: 'Kiro only' },
+  { value: '12', label: 'Kiro + auto-upgrade (skip if charge > $0)' },
+  { value: '14', label: 'CodeBuddy + Kiro + Kiro upgrade' },
+  { value: '15', label: 'Unlucid + CodeBuddy + Kiro + Kiro upgrade' },
 ]
 
 const RUNNING_STATUSES = new Set<Job['status']>(['running', 'aborting'])
@@ -73,6 +76,10 @@ export default function RunBotPage() {
   const [headless, setHeadless] = useState(true)
   const [limit, setLimit] = useState(0)
   const [concurrency, setConcurrency] = useState(1)
+  const [manualLogin, setManualLogin] = useState(false)
+
+  const modeIncludesKiro = (Number(mode) & 4) === 4
+  const manualLoginAvailable = modeIncludesKiro
 
   const jobs = data?.jobs ?? []
   const runningJobs = jobs.filter((job) => RUNNING_STATUSES.has(job.status))
@@ -81,14 +88,22 @@ export default function RunBotPage() {
   const handleStart = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault()
     try {
+      const effectiveManualLogin = manualLogin && manualLoginAvailable
       await createJob.mutateAsync({
         mode: Number(mode),
-        headless,
+        headless: effectiveManualLogin ? false : headless,
         browserEngine,
         limit: Math.max(0, Number(limit) || 0),
-        concurrency: Math.min(5, Math.max(1, Number(concurrency) || 1)),
+        concurrency: effectiveManualLogin
+          ? 1
+          : Math.min(5, Math.max(1, Number(concurrency) || 1)),
+        manualLogin: effectiveManualLogin,
       })
-      showSuccess('Bot job started')
+      showSuccess(
+        effectiveManualLogin
+          ? 'Manual-login bot started — complete Google login in the browser window'
+          : 'Bot job started',
+      )
       setDialogOpen(false)
     } catch (error) {
       showError(error instanceof Error ? error.message : 'Failed to start bot job')
@@ -166,8 +181,34 @@ export default function RunBotPage() {
                     <span>Headless browser</span>
                     <input
                       type="checkbox"
-                      checked={headless}
+                      checked={manualLogin && manualLoginAvailable ? false : headless}
+                      disabled={manualLogin && manualLoginAvailable}
                       onChange={(event) => setHeadless(event.target.checked)}
+                      className="size-4 accent-primary"
+                    />
+                  </label>
+
+                  <label
+                    className={`flex items-center justify-between rounded-lg border px-3 py-2 text-sm font-medium ${
+                      manualLoginAvailable ? '' : 'opacity-60'
+                    }`}
+                    title={
+                      manualLoginAvailable
+                        ? 'Skip the automated Google login. You complete sign-in in the browser window; the bot picks up after the OAuth redirect, runs the upgrade, and captures the refresh token.'
+                        : 'Requires a Kiro mode (4, 12, 14, or 15).'
+                    }
+                  >
+                    <span>
+                      Manual Google login
+                      <span className="ml-2 text-xs font-normal text-muted-foreground">
+                        forces headless off + concurrency 1
+                      </span>
+                    </span>
+                    <input
+                      type="checkbox"
+                      checked={manualLogin && manualLoginAvailable}
+                      disabled={!manualLoginAvailable}
+                      onChange={(event) => setManualLogin(event.target.checked)}
                       className="size-4 accent-primary"
                     />
                   </label>
@@ -183,7 +224,8 @@ export default function RunBotPage() {
                         type="number"
                         min={1}
                         max={5}
-                        value={concurrency}
+                        value={manualLogin && manualLoginAvailable ? 1 : concurrency}
+                        disabled={manualLogin && manualLoginAvailable}
                         onChange={(event) => setConcurrency(Number(event.target.value))}
                       />
                     </label>
