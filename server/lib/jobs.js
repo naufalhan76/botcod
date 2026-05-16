@@ -9,7 +9,7 @@ import { getConfig } from './config.js';
 import { addKiroCred } from './providers/kiro/credentials.js';
 import path from 'path';
 
-const VALID_MODES = new Set([1, 2, 3, 4, 5, 6, 7]);
+const VALID_MODES = new Set([1, 2, 3, 4, 5, 6, 7, 12, 13, 14, 15]);
 
 const _jobs = new Map(); // id -> Job
 
@@ -152,7 +152,10 @@ class Job {
 
 export function createJob({ mode, headless = true, browserEngine = 'camoufox', limit = 0, concurrency = 1, accountsList = null, proxiesList = null }) {
     if (!VALID_MODES.has(mode)) {
-        throw new Error('mode must be one of: 1=Unlucid, 2=CodeBuddy, 4=Kiro, or any combination (3,5,6,7)');
+        throw new Error('mode must be one of: 1=Unlucid, 2=CodeBuddy, 4=Kiro, 8=KiroUpgrade, or any combination (3,5,6,7,12,13,14,15)');
+    }
+    if ((mode & 8) && !(mode & 4)) {
+        throw new Error('Kiro upgrade (bit 8) requires Kiro signup (bit 4) to also be enabled');
     }
     concurrency = Math.max(1, Math.floor(Number(concurrency) || 1));
     if (concurrency > 8) throw new Error('concurrency capped at 8 to keep VM/browser memory sane.');

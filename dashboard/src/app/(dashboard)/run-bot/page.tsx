@@ -39,6 +39,9 @@ const BOT_MODES = [
   { value: '6', label: 'CodeBuddy + Kiro' },
   { value: '2', label: 'CodeBuddy only' },
   { value: '4', label: 'Kiro only' },
+  { value: '12', label: 'Kiro + auto-upgrade (skip if charge > $0)' },
+  { value: '14', label: 'CodeBuddy + Kiro + Kiro upgrade' },
+  { value: '15', label: 'Unlucid + CodeBuddy + Kiro + Kiro upgrade' },
 ]
 
 const RUNNING_STATUSES = new Set<Job['status']>(['running', 'aborting'])
