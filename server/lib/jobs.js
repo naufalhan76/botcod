@@ -17,7 +17,7 @@ const VALID_MODES = new Set([1, 2, 3, 4, 5, 6, 7, 8, 10, 11, 12, 13, 14, 15]);
 const _jobs = new Map(); // id -> Job
 
 class Job {
-    constructor({ accounts, proxies, mode, headless, browserEngine, limit, concurrency }) {
+    constructor({ accounts, proxies, mode, headless, browserEngine, limit, concurrency, manualLogin = false }) {
         this.id = randomUUID();
         this.startedAt = Date.now();
         this.finishedAt = null;
@@ -25,6 +25,7 @@ class Job {
         this.headless = headless;
         this.browserEngine = browserEngine || 'camoufox';
         this.concurrency = concurrency;
+        this.manualLogin = !!manualLogin;
         this.totalRequested = accounts.length;
         this.accounts = limit && limit > 0 ? accounts.slice(0, limit) : accounts;
         this.proxies = proxies;
@@ -57,6 +58,7 @@ class Job {
             headless: this.headless,
             browserEngine: this.browserEngine,
             concurrency: this.concurrency,
+            manualLogin: this.manualLogin,
             keysOutputFile,
             failedOutputDir,
             onKiroCred: async (cred) => {
@@ -140,6 +142,7 @@ class Job {
             headless: this.headless,
             browserEngine: this.browserEngine,
             concurrency: this.concurrency,
+            manualLogin: this.manualLogin,
             status: this.status,
             total: this.accounts.length,
             processed: this.results.length,
@@ -153,15 +156,25 @@ class Job {
     }
 }
 
-export function createJob({ mode, headless = true, browserEngine = 'camoufox', limit = 0, concurrency = 1, accountsList = null, proxiesList = null }) {
+export function createJob({ mode, headless = true, browserEngine = 'camoufox', limit = 0, concurrency = 1, accountsList = null, proxiesList = null, manualLogin = false }) {
     if (!VALID_MODES.has(mode)) {
         throw new Error('mode must be one of: 1=Unlucid, 2=CodeBuddy, 4=Kiro, 8=KiroUpgrade, or any combination (3,5,6,7,12,13,14,15)');
     }
     if ((mode & 8) && !(mode & 4)) {
         throw new Error('Kiro upgrade (bit 8) requires Kiro signup (bit 4) to also be enabled');
     }
+    if (manualLogin && !(mode & 4)) {
+        throw new Error('manualLogin requires Kiro signup (bit 4) to be enabled');
+    }
     concurrency = Math.max(1, Math.floor(Number(concurrency) || 1));
     if (concurrency > 8) throw new Error('concurrency capped at 8 to keep VM/browser memory sane.');
+    if (manualLogin && concurrency > 1) {
+        // Only one operator can manually drive a browser at a time.
+        throw new Error('manualLogin requires concurrency=1 (one browser window the operator can drive)');
+    }
+    if (manualLogin && headless) {
+        throw new Error('manualLogin requires headless=false so the operator can see the browser');
+    }
 
     const validEngines = ['camoufox', 'cloakbrowser'];
     if (!validEngines.includes(browserEngine)) browserEngine = 'camoufox';
@@ -176,7 +189,7 @@ export function createJob({ mode, headless = true, browserEngine = 'camoufox', l
         throw new Error(`concurrency=${concurrency} requires at least ${concurrency} proxies (have ${proxies.length}).`);
     }
 
-    const job = new Job({ accounts, proxies, mode, headless, browserEngine, limit, concurrency });
+    const job = new Job({ accounts, proxies, mode, headless, browserEngine, limit, concurrency, manualLogin });
     _jobs.set(job.id, job);
     job.start();
     return job;

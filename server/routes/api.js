@@ -32,6 +32,7 @@ import {
 } from '../lib/keyPool.js';
 import { loadLines, writeLines } from '../../lib/utils.js';
 import { createJob, getJob, listJobs, abortJob } from '../lib/jobs.js';
+import { listKiroTokens, deleteKiroToken } from '../../lib/kiroTokens.js';
 import { streamChatCompletion } from '../lib/upstream.js';
 import { kiroChatCompletion } from '../lib/providers/kiro/index.js';
 import {
@@ -341,14 +342,15 @@ router.delete('/proxies/:idx', (req, res) => {
 // ---- Jobs (signup runner) ----
 router.get('/jobs', (req, res) => res.json({ jobs: listJobs() }));
 router.post('/jobs', (req, res) => {
-    const { mode, headless = true, browserEngine = 'camoufox', limit = 0, concurrency = 1 } = req.body || {};
+    const { mode, headless = true, browserEngine = 'camoufox', limit = 0, concurrency = 1, manualLogin = false } = req.body || {};
     try {
         const job = createJob({
             mode: parseInt(mode),
             headless: !!headless,
             browserEngine: browserEngine || 'camoufox',
             limit: parseInt(limit) || 0,
-            concurrency: parseInt(concurrency) || 1
+            concurrency: parseInt(concurrency) || 1,
+            manualLogin: !!manualLogin
         });
         res.json(job.summary());
     } catch (e) {
@@ -375,6 +377,24 @@ router.get('/jobs/:id/stream', (req, res) => {
 router.post('/jobs/:id/abort', (req, res) => {
     const ok = abortJob(req.params.id);
     res.json({ ok });
+});
+
+// ---- Kiro tokens (captured refresh tokens) ----
+router.get('/kiro-tokens', (req, res) => {
+    try {
+        const tokens = listKiroTokens();
+        res.json({ tokens });
+    } catch (e) {
+        res.status(500).json({ error: e.message });
+    }
+});
+router.delete('/kiro-tokens/:email', (req, res) => {
+    try {
+        const ok = deleteKiroToken(decodeURIComponent(req.params.email));
+        res.json({ ok });
+    } catch (e) {
+        res.status(500).json({ error: e.message });
+    }
 });
 
 // ---- Settings ----

@@ -5,6 +5,8 @@ codebuddy_keys.txt
 failed_unlucid.txt
 failed_codebuddy.txt
 failed_kiro.txt
+failed_kiro_upgrade.txt
+kiro_tokens.json
 server/state.json
 server/settings.json
 server/history.json
